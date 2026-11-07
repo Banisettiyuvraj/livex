@@ -37,6 +37,8 @@ export interface SessionChangeEvent {
 
 /** Allowed transitions. Keeps invalid moves out of the UI. */
 export const SESSION_TRANSITIONS: Record<SessionState, readonly SessionState[]> = {
+  // `error` is reachable from `idle` because a file can fail validation
+  // before any session exists.
   idle: ["ready", "error"],
   ready: ["live", "idle", "error"],
   live: ["paused", "completed", "error", "idle"],

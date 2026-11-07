@@ -74,7 +74,41 @@ export class WorkspaceUI {
     this.bindKeyboard();
     this.bindLifecycle();
 
+    this.applyPlatformShortcuts();
+    this.disableUnimplementedToolbarButtons();
+
     this.render("idle");
+  }
+
+  /**
+   * The markup ships macOS-style ⌘O labels. On Windows/Linux show Ctrl+O so
+   * the hint matches the key the user actually has.
+   */
+  private applyPlatformShortcuts(): void {
+    const isMac = /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent);
+    const label = isMac ? "⌘O" : "Ctrl+O";
+    for (const node of document.querySelectorAll<HTMLElement>('[data-shortcut="mod-o"]')) {
+      node.textContent = label;
+    }
+    const openBtn = document.getElementById("open-video-btn");
+    if (openBtn) openBtn.title = `Open Local Video (${label})`;
+  }
+
+  /**
+   * Toolbar buttons that belong to future features (menu, pan, annotate,
+   * bookmark, zoom…) have no handler yet. Make them look and behave
+   * unavailable instead of silently doing nothing when clicked.
+   */
+  private disableUnimplementedToolbarButtons(): void {
+    for (const node of document.querySelectorAll<HTMLButtonElement>("button[data-unavailable]")) {
+      node.classList.add("is-unavailable");
+      node.setAttribute("aria-disabled", "true");
+      node.tabIndex = -1;
+      node.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      });
+    }
   }
 
   /* ---------------------------------------------------------------- */
@@ -261,9 +295,9 @@ export class WorkspaceUI {
 
       if (!probe.supported) {
         this.files.setCurrentFile(null);
-        this.manager.reset("reset");
-        this.showError(this.files.toPlaybackError(probe).toDetails());
-        this.render("error");
+        // Drive the state machine rather than poking the DOM, so the session
+        // state and the visible screen never disagree.
+        this.manager.reportFailure(this.files.toPlaybackError(probe).toDetails());
         return;
       }
 
@@ -282,9 +316,7 @@ export class WorkspaceUI {
               hint: "Try another file, or convert it to MP4 (H.264 + AAC).",
               cause: error,
             });
-      this.manager.reset("reset");
-      this.showError(playbackError.toDetails());
-      this.render("error");
+      this.manager.reportFailure(playbackError.toDetails());
     }
   }
 

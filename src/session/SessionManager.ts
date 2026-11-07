@@ -149,6 +149,11 @@ export class SessionManager {
     else this.emitProgress();
   }
 
+  /** Report a failure detected outside the engine (e.g. a pre-flight probe). */
+  reportFailure(details: PlaybackErrorDetails): void {
+    this.fail(details);
+  }
+
   onSessionChange(listener: SessionListener): () => void {
     this.sessionListeners.add(listener);
     return () => this.sessionListeners.delete(listener);

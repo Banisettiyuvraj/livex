@@ -98,6 +98,18 @@
 
     /* Utility classes */
     .hidden { display: none !important; }
+
+    /* Toolbar buttons for features that are not implemented yet. They stay
+       visible to preserve the Stitch design, but read as unavailable. */
+    .is-unavailable {
+      opacity: 0.4;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+    .is-unavailable:hover {
+      background-color: transparent;
+      color: inherit;
+    }
   </style>
 </head>
 
@@ -110,7 +122,7 @@
   <header class="relative z-20 w-full px-4 pt-3 pointer-events-none flex items-start justify-between">
     <!-- Top-Left Branding -->
     <div class="flex items-center gap-2 pointer-events-auto">
-      <button class="h-9 w-9 flex items-center justify-center rounded-lg bg-surface border border-border text-neutral-300 tool-btn shadow-sm" title="Menu">
+      <button class="h-9 w-9 flex items-center justify-center rounded-lg bg-surface border border-border text-neutral-300 tool-btn shadow-sm" title="Menu — not yet implemented" aria-disabled="true" data-unavailable>
         <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" viewBox="0 0 24 24">
           <line x1="3" x2="21" y1="6" y2="6"></line>
           <line x1="3" x2="21" y1="12" y2="12"></line>
@@ -122,13 +134,13 @@
           <polygon points="5 3 19 12 5 21 5 3"></polygon>
         </svg>
         <span class="font-medium tracking-tight text-neutral-200">Livex</span>
-        <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-400 border border-neutral-700/60">v1.0</span>
+        <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-400 border border-neutral-700/60">v1.1</span>
       </div>
     </div>
 
     <!-- Top-Center Floating Toolbar -->
     <nav class="pointer-events-auto bg-surface border border-border rounded-xl p-1 shadow-lg flex items-center gap-0.5 text-neutral-400">
-      <button class="tool-btn w-8 h-8 rounded-lg flex items-center justify-center" title="Pan Canvas (H)">
+      <button class="tool-btn w-8 h-8 rounded-lg flex items-center justify-center" title="Pan Canvas — not yet implemented" aria-disabled="true" data-unavailable>
         <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewBox="0 0 24 24">
           <path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"></path>
           <path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"></path>
@@ -137,7 +149,7 @@
         </svg>
       </button>
 
-      <button class="tool-btn w-8 h-8 rounded-lg flex items-center justify-center" title="Select / Move (V)">
+      <button class="tool-btn w-8 h-8 rounded-lg flex items-center justify-center" title="Select / Move — not yet implemented" aria-disabled="true" data-unavailable>
         <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewBox="0 0 24 24">
           <path d="m3 3 7 18 3-7 7-3L3 3z"></path>
         </svg>
@@ -151,16 +163,16 @@
           <line x1="2" x2="22" y1="12" y2="12"></line>
         </svg>
         <span>Open Video</span>
-        <span class="text-[10px] opacity-75 font-mono ml-0.5">⌘O</span>
+        <span class="text-[10px] opacity-75 font-mono ml-0.5" data-shortcut="mod-o">⌘O</span>
       </button>
 
-      <button class="tool-btn w-8 h-8 rounded-lg flex items-center justify-center" title="Draw Annotation (P)">
+      <button class="tool-btn w-8 h-8 rounded-lg flex items-center justify-center" title="Draw Annotation — not yet implemented" aria-disabled="true" data-unavailable>
         <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewBox="0 0 24 24">
           <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path>
         </svg>
       </button>
 
-      <button class="tool-btn w-8 h-8 rounded-lg flex items-center justify-center" title="Keyframe Bookmark (B)">
+      <button class="tool-btn w-8 h-8 rounded-lg flex items-center justify-center" title="Keyframe Bookmark — not yet implemented" aria-disabled="true" data-unavailable>
         <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewBox="0 0 24 24">
           <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"></path>
         </svg>
@@ -168,7 +180,7 @@
 
       <div class="w-[1px] h-5 bg-border mx-1"></div>
 
-      <button class="tool-btn w-8 h-8 rounded-lg flex items-center justify-center" title="Settings">
+      <button class="tool-btn w-8 h-8 rounded-lg flex items-center justify-center" title="Settings — not yet implemented" aria-disabled="true" data-unavailable>
         <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewBox="0 0 24 24">
           <circle cx="12" cy="12" r="3"></circle>
           <path d="M12 1v6m0 6v6m9-9h-6m-6 0H3"></path>
@@ -201,12 +213,9 @@
       </h1>
 
       <div class="flex items-center gap-1.5 text-sm text-muted-txt mb-6 font-normal">
-        <span>or use the</span>
-        <button class="pointer-events-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-surface border border-border text-neutral-200 hover:text-white hover:border-neutral-500 text-xs font-medium transition-colors" onclick="document.getElementById('video-input').click()">
-          <span>Open Video</span>
-          <kbd class="font-mono text-[10px] text-neutral-400 bg-neutral-800 px-1 rounded">⌘O</kbd>
-        </button>
-        <span>button</span>
+        <span>or press</span>
+        <kbd class="pointer-events-auto inline-flex items-center px-2 py-0.5 rounded-md bg-surface border border-border text-neutral-200 font-mono text-[10px]" data-shortcut="mod-o">⌘O</kbd>
+        <span>to open a file</span>
       </div>
 
       <div class="flex items-center gap-2 text-[11px] text-neutral-500 font-mono tracking-wide">
@@ -228,7 +237,7 @@
               <path d="m16 18 2 2 4-4"></path>
               <path d="M21 12v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
             </svg>
-            <span id="filename-ready" class="text-sm font-medium text-neutral-200">video.mp4</span>
+            <span id="filename-ready" class="text-sm font-medium text-neutral-200"></span>
           </div>
         </div>
         <div class="flex items-center gap-1.5 px-2.5 py-1 rounded bg-surface/80 border border-border text-xs">
@@ -257,7 +266,7 @@
         <div class="flex items-center gap-2">
           <button id="change-video-btn" class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-canvas hover:bg-surface-hover transition-all">
             <span class="text-sm font-medium">Change</span>
-            <span class="text-[10px] font-mono text-muted-txt">⌘O</span>
+            <span class="text-[10px] font-mono text-muted-txt" data-shortcut="mod-o">⌘O</span>
           </button>
 
           <button id="start-session-btn" class="flex items-center gap-2 px-5 py-2 rounded-lg bg-accent-purple hover:bg-[#7874e4] active:scale-[0.98] text-white shadow-md transition-all font-medium">
@@ -282,7 +291,7 @@
           <span class="text-[10px] text-muted-txt font-mono">Simulated Live</span>
         </div>
         <div class="flex items-center gap-2">
-          <span id="filename-active" class="text-xs text-muted-txt font-mono">video.mp4</span>
+          <span id="filename-active" class="text-xs text-muted-txt font-mono"></span>
         </div>
       </div>
 
@@ -368,13 +377,13 @@
   <!-- Bottom Utility Controls -->
   <footer class="relative z-20 w-full px-4 pb-4 pointer-events-none flex items-end justify-between">
     <div class="pointer-events-auto bg-surface border border-border rounded-xl p-1 shadow-lg flex items-center gap-1 text-neutral-400">
-      <button class="tool-btn w-7 h-7 rounded-lg flex items-center justify-center text-xs">
+      <button class="tool-btn w-7 h-7 rounded-lg flex items-center justify-center text-xs" title="Zoom out — not yet implemented" aria-disabled="true" data-unavailable>
         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" viewBox="0 0 24 24">
           <line x1="5" x2="19" y1="12" y2="12"></line>
         </svg>
       </button>
-      <button class="tool-btn px-2 h-7 rounded-lg text-xs font-mono font-medium text-neutral-300">100%</button>
-      <button class="tool-btn w-7 h-7 rounded-lg flex items-center justify-center text-xs">
+      <button class="tool-btn px-2 h-7 rounded-lg text-xs font-mono font-medium text-neutral-300" title="Zoom level — not yet implemented" aria-disabled="true" data-unavailable>100%</button>
+      <button class="tool-btn w-7 h-7 rounded-lg flex items-center justify-center text-xs" title="Zoom in — not yet implemented" aria-disabled="true" data-unavailable>
         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" viewBox="0 0 24 24">
           <line x1="12" x2="12" y1="5" y2="19"></line>
           <line x1="5" x2="19" y1="12" y2="12"></line>
