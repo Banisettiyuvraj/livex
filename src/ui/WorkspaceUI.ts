@@ -117,8 +117,9 @@ export class WorkspaceUI {
 
   private bindManager(): void {
     this.cleanups.push(
-      this.manager.onSessionChange(({ state }) => {
+      this.manager.onSessionChange(({ state, previous }) => {
         this.render(state);
+        this.announceState(state, previous);
       }),
       this.manager.onProgress((progress) => {
         this.renderProgress(progress);
@@ -127,6 +128,26 @@ export class WorkspaceUI {
         this.showError(details);
       }),
     );
+  }
+
+  /**
+   * Announce session changes to assistive technology. The visible badges are
+   * colour/icon only, so without this a screen-reader user gets no feedback.
+   */
+  private announceState(state: SessionState, previous: SessionState): void {
+    const announcer = document.getElementById("session-announcer");
+    if (!announcer || state === previous) return;
+
+    const messages: Record<SessionState, string> = {
+      idle: "No video selected.",
+      ready: "Video ready. Press Start Live Session to begin.",
+      live: "Session live. Playback started.",
+      paused: "Session paused.",
+      completed: "Session completed. You reached the end of the video.",
+      error: "Playback error. See the message for details.",
+    };
+
+    announcer.textContent = messages[state];
   }
 
   private render(state: SessionState): void {
@@ -155,6 +176,34 @@ export class WorkspaceUI {
     this.syncVideoSlot(state);
     this.syncStatusBadges(state);
     this.syncSessionButtons(state);
+    this.syncFocus(state);
+  }
+
+  /**
+   * Keep keyboard focus inside the visible screen. When a screen is hidden its
+   * controls become unreachable, so move focus to the primary action of the
+   * new state instead of leaving it on a now-hidden button.
+   */
+  private syncFocus(state: SessionState): void {
+    const active = document.activeElement as HTMLElement | null;
+    // Only intervene when focus was lost (hidden element) or is on <body>.
+    const lostFocus = !active || active === document.body || active.offsetParent === null;
+    if (!lostFocus) return;
+
+    const primary: Partial<Record<SessionState, string>> = {
+      ready: "start-session-btn",
+      live: "pause-btn",
+      paused: "resume-btn",
+      completed: "open-another-btn",
+      error: "try-another-btn",
+    };
+
+    const targetId = primary[state];
+    if (targetId) {
+      const target = document.getElementById(targetId);
+      // `preventScroll` keeps the layout stable; LiveX has no scroll container.
+      target?.focus({ preventScroll: true });
+    }
   }
 
   /**
@@ -372,7 +421,11 @@ export class WorkspaceUI {
 
     const renderVolume = (volume: number, muted: boolean): void => {
       volumeIcon.textContent = muted || volume === 0 ? "🔇" : volume < 0.5 ? "🔉" : "🔊";
-      volumeBtn.title = muted ? "Unmute" : "Mute";
+      const label = muted ? "Unmute" : "Mute";
+      volumeBtn.title = label;
+      volumeBtn.setAttribute("aria-label", label);
+      volumeBtn.setAttribute("aria-pressed", String(muted));
+      volumeSlider.value = String(muted ? 0 : volume);
     };
 
     const onSlider = (): void => {
@@ -403,7 +456,9 @@ export class WorkspaceUI {
         document.fullscreenElement || document.webkitFullscreenElement,
       );
       fullscreenIcon.textContent = isFullscreen ? "✕" : "⛶";
-      fullscreenBtn.title = isFullscreen ? "Exit fullscreen" : "Fullscreen";
+      const label = isFullscreen ? "Exit fullscreen" : "Fullscreen";
+      fullscreenBtn.title = label;
+      fullscreenBtn.setAttribute("aria-label", label);
     };
 
     const onFullscreen = async (): Promise<void> => {

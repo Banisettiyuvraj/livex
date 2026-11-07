@@ -6,6 +6,7 @@
  * *which* playback engine is used, which is what keeps the UI engine-agnostic.
  */
 
+import "./styles/app.css";
 import { BrowserVideoAdapter } from "./playback/BrowserVideoAdapter";
 import { PlaybackCapabilityDetector } from "./playback/PlaybackCapabilities";
 import { LocalFileManager } from "./files/LocalFileManager";
@@ -48,7 +49,14 @@ function boot(): void {
       "color:#a5a1f8",
       detector.describeSupport(),
     );
-    Object.assign(window, { __livex: { adapter, manager, files, ui } });
+  }
+
+  // Test hook. Exposed when running under Vite dev, or when a build is
+  // explicitly made with VITE_LIVEX_TEST_HOOKS=1 (used by tests/e2e.mjs to
+  // verify the production bundle). Never enabled in a normal production build.
+  const testHooks = import.meta.env.DEV || import.meta.env.VITE_LIVEX_TEST_HOOKS === "1";
+  if (testHooks) {
+    Object.assign(window, { __livex: { adapter, manager, files, ui, detector } });
   }
 
   console.info("LiveX ready — local playback only, nothing is uploaded.");

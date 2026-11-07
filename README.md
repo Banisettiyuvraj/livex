@@ -4,6 +4,7 @@ A local-first **simulated live session** video player. Drop a class video onto
 the workspace and watch it as a "live" session that can't be skipped ahead.
 
 - Videos **never leave your device** — no upload, no backend, no accounts.
+- **Works fully offline** — Tailwind and fonts are bundled; zero external requests.
 - **TypeScript** application layer, built with Vite.
 - Native browser playback behind a swappable **playback adapter interface**.
 - Real container/codec detection, so unsupported files fail with a reason.
@@ -39,11 +40,12 @@ A container extension does not guarantee playback — it is always
 ## Architecture
 
 ```text
-index.html (unchanged Stitch UI)
+index.html (Stitch UI markup — unchanged visuals)
         │
-        ├── src/main.ts                  composition root: picks the engine
-        │
-        ├── src/ui/WorkspaceUI.ts        binds existing DOM ↔ layers
+        └── src/main.ts                  composition root: picks the engine
+              │  imports styles/app.css  (bundled Tailwind + self-hosted fonts)
+              │
+              ├── src/ui/WorkspaceUI.ts        binds existing DOM ↔ layers
         ├── src/session/SessionManager.ts states, anti-skip, 1× lock, completion
         ├── src/files/                   LocalFileManager + magic-byte MediaProbe
         └── src/playback/
@@ -74,19 +76,31 @@ Video bytes are read through the File API and exposed to the player only as a
 endpoint, no storage of video, and no telemetry. The automated test asserts that
 **zero non-GET requests** occur during a full session.
 
-The only external requests the page makes are static assets (Google Fonts and the
-Tailwind CDN) — never video data.
+**The page makes zero external requests.** Tailwind CSS and both font families
+(Inter, JetBrains Mono) are bundled and self-hosted, so LiveX works completely
+**offline** once loaded — verified by a test that aborts every non-localhost
+request and still plays a full session.
 
 ## Tests
 
 ```bash
 npm run dev            # in one terminal
-node tests/e2e.mjs     # in another (Playwright, Chromium)
+npm test               # in another (Playwright, Chromium)
 ```
 
 37 checks across the compatibility matrix, the session state machine, anti-skip,
 the 1× lock, completion semantics and privacy. Fixtures are generated with
 ffmpeg and live in `tests/fixtures/`.
+
+To run the same suite against the production bundle:
+
+```bash
+VITE_LIVEX_TEST_HOOKS=1 npm run build   # exposes window.__livex for tests
+npm run preview                          # http://localhost:4173
+LIVEX_URL=http://localhost:4173/ npm test
+```
+
+The test hook is tree-shaken out of normal builds.
 
 ## Docs
 

@@ -5,3 +5,4 @@ dist/
 
 # Test artefacts
 tests/shot-*.png
+tests/_*.mjs

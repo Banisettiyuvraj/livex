@@ -1,0 +1,155 @@
+/* Self-hosted fonts (were previously requested from fonts.googleapis.com).
+   Only the latin subsets and the weights the UI actually uses are included. */
+@import "@fontsource/inter/latin-400.css";
+@import "@fontsource/inter/latin-500.css";
+@import "@fontsource/inter/latin-600.css";
+@import "@fontsource/jetbrains-mono/latin-400.css";
+@import "@fontsource/jetbrains-mono/latin-500.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * LiveX application styles.
+ *
+ * Moved verbatim from the inline <style> block in index.html so Tailwind can be
+ * bundled locally. Visual output must stay identical to the Stitch design.
+ */
+
+@layer base {
+  /* Subtle infinite dot grid resembling Excalidraw's canvas */
+  .dot-grid-canvas {
+    background-color: #121212;
+    background-image: radial-gradient(rgba(255, 255, 255, 0.12) 1px, transparent 1px);
+    background-size: 24px 24px;
+    background-position: 0 0;
+  }
+
+  /* Hide native video controls — LiveX draws its own. */
+  video::-webkit-media-controls {
+    display: none !important;
+  }
+  video::-webkit-media-controls-enclosure {
+    display: none !important;
+  }
+  video::-moz-media-controls {
+    display: none !important;
+  }
+}
+
+@layer components {
+  /* Subtle transitions and tactile button states */
+  .tool-btn {
+    transition: all 0.15s ease-in-out;
+  }
+  .tool-btn:hover {
+    background-color: #2c2c2c;
+    color: #ffffff;
+  }
+  .tool-btn:active {
+    transform: scale(0.96);
+  }
+
+  /* Corner brackets for the minimalist dropzone */
+  .bracket-tl {
+    position: absolute;
+    top: -12px;
+    left: -12px;
+    width: 14px;
+    height: 14px;
+    border-top: 1.5px solid #3a3a3e;
+    border-left: 1.5px solid #3a3a3e;
+  }
+  .bracket-tr {
+    position: absolute;
+    top: -12px;
+    right: -12px;
+    width: 14px;
+    height: 14px;
+    border-top: 1.5px solid #3a3a3e;
+    border-right: 1.5px solid #3a3a3e;
+  }
+  .bracket-bl {
+    position: absolute;
+    bottom: -12px;
+    left: -12px;
+    width: 14px;
+    height: 14px;
+    border-bottom: 1.5px solid #3a3a3e;
+    border-left: 1.5px solid #3a3a3e;
+  }
+  .bracket-br {
+    position: absolute;
+    bottom: -12px;
+    right: -12px;
+    width: 14px;
+    height: 14px;
+    border-bottom: 1.5px solid #3a3a3e;
+    border-right: 1.5px solid #3a3a3e;
+  }
+}
+
+@layer utilities {
+  /* Live pulse animation */
+  @keyframes pulse-dot {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.5;
+    }
+  }
+  .animate-pulse-dot {
+    animation: pulse-dot 2s infinite;
+  }
+
+  /* Respect the OS "reduce motion" preference: keep the LIVE dot solid rather
+     than pulsing, and drop the scale transitions. */
+  @media (prefers-reduced-motion: reduce) {
+    .animate-pulse-dot {
+      animation: none;
+      opacity: 1;
+    }
+    .tool-btn,
+    #progress-fill,
+    #state-idle {
+      transition: none !important;
+    }
+    .tool-btn:active {
+      transform: none;
+    }
+  }
+
+  /* Toolbar buttons for features that are not implemented yet. They stay
+     visible to preserve the Stitch design, but read as unavailable. */
+  .is-unavailable {
+    opacity: 0.4;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+  .is-unavailable:hover {
+    background-color: transparent;
+    color: inherit;
+  }
+
+  /* Accessibility: visible focus ring for keyboard users only. */
+  .focus-ring:focus-visible {
+    outline: 2px solid #a5a1f8;
+    outline-offset: 2px;
+  }
+
+  /* Screen-reader only, but still announced. */
+  .sr-only-livex {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+}

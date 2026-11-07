@@ -5,143 +5,44 @@
   <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
   <title>Livex - Live Session Simulator</title>
 
-  <!-- Fonts -->
-  <link href="https://fonts.googleapis.com" rel="preconnect"/>
-  <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <!-- Fonts are self-hosted through src/styles/app.css -> @fontsource-free
+       defaults; see docs/UPGRADE-AUDIT.md. No external font request. -->
 
-  <!-- Tailwind CSS CDN -->
-  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          fontFamily: {
-            sans: ['Inter', 'sans-serif'],
-            mono: ['JetBrains Mono', 'monospace'],
-          },
-          colors: {
-            canvas: '#121212',
-            surface: '#202020',
-            'surface-hover': '#2c2c2c',
-            'surface-active': '#363636',
-            border: '#2e2e2e',
-            'border-subtle': '#242424',
-            'muted-txt': '#8e8e93',
-            'accent-purple': '#6965db',
-            'accent-purple-light': '#a5a1f8',
-            'live-red': '#ef4444',
-          }
-        }
-      }
-    }
-  </script>
-
-  <style>
-    /* Subtle infinite dot grid resembling Excalidraw's canvas */
-    .dot-grid-canvas {
-      background-color: #121212;
-      background-image: radial-gradient(rgba(255, 255, 255, 0.12) 1px, transparent 1px);
-      background-size: 24px 24px;
-      background-position: 0 0;
-    }
-
-    /* Subtle transitions and tactile button states */
-    .tool-btn {
-      transition: all 0.15s ease-in-out;
-    }
-    .tool-btn:hover {
-      background-color: #2c2c2c;
-      color: #ffffff;
-    }
-    .tool-btn:active {
-      transform: scale(0.96);
-    }
-
-    /* Corner brackets for the minimalist dropzone */
-    .bracket-tl {
-      position: absolute; top: -12px; left: -12px; width: 14px; height: 14px;
-      border-top: 1.5px solid #3a3a3e; border-left: 1.5px solid #3a3a3e;
-    }
-    .bracket-tr {
-      position: absolute; top: -12px; right: -12px; width: 14px; height: 14px;
-      border-top: 1.5px solid #3a3a3e; border-right: 1.5px solid #3a3a3e;
-    }
-    .bracket-bl {
-      position: absolute; bottom: -12px; left: -12px; width: 14px; height: 14px;
-      border-bottom: 1.5px solid #3a3a3e; border-left: 1.5px solid #3a3a3e;
-    }
-    .bracket-br {
-      position: absolute; bottom: -12px; right: -12px; width: 14px; height: 14px;
-      border-bottom: 1.5px solid #3a3a3e; border-right: 1.5px solid #3a3a3e;
-    }
-
-    /* Live pulse animation */
-    @keyframes pulse-dot {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.5; }
-    }
-    .animate-pulse-dot {
-      animation: pulse-dot 2s infinite;
-    }
-
-    /* Hide video controls */
-    video::-webkit-media-controls {
-      display: none !important;
-    }
-    video::-webkit-media-controls-enclosure {
-      display: none !important;
-    }
-    video::-moz-media-controls {
-      display: none !important;
-    }
-
-    /* Utility classes */
-    .hidden { display: none !important; }
-
-    /* Toolbar buttons for features that are not implemented yet. They stay
-       visible to preserve the Stitch design, but read as unavailable. */
-    .is-unavailable {
-      opacity: 0.4;
-      cursor: not-allowed;
-      pointer-events: none;
-    }
-    .is-unavailable:hover {
-      background-color: transparent;
-      color: inherit;
-    }
-  </style>
+  <!-- Tailwind is bundled locally (no CDN) so the page makes zero external
+       requests and works fully offline. -->
+  <script type="module" src="/src/main.ts"></script>
 </head>
 
 <body class="h-full w-full overflow-hidden text-neutral-200 antialiased dot-grid-canvas relative font-sans flex flex-col justify-between">
 
   <!-- Global drag & drop receiver -->
-  <div class="absolute inset-0 z-0 pointer-events-auto" id="drop-target"></div>
+  <!-- Decorative click/DnD surface; keyboard users have the toolbar Open Video button. -->
+  <div class="absolute inset-0 z-0 pointer-events-auto" id="drop-target" aria-hidden="true"></div>
 
   <!-- Top Bar -->
   <header class="relative z-20 w-full px-4 pt-3 pointer-events-none flex items-start justify-between">
     <!-- Top-Left Branding -->
     <div class="flex items-center gap-2 pointer-events-auto">
       <button class="h-9 w-9 flex items-center justify-center rounded-lg bg-surface border border-border text-neutral-300 tool-btn shadow-sm" title="Menu — not yet implemented" aria-disabled="true" data-unavailable>
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" viewBox="0 0 24 24">
+        <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" viewBox="0 0 24 24">
           <line x1="3" x2="21" y1="6" y2="6"></line>
           <line x1="3" x2="21" y1="12" y2="12"></line>
           <line x1="3" x2="21" y1="18" y2="18"></line>
         </svg>
       </button>
       <div class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-surface/80 backdrop-blur-sm border border-border/80 text-xs shadow-sm">
-        <svg class="w-3.5 h-3.5 text-accent-purple-light" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" viewBox="0 0 24 24">
+        <svg aria-hidden="true" class="w-3.5 h-3.5 text-accent-purple-light" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" viewBox="0 0 24 24">
           <polygon points="5 3 19 12 5 21 5 3"></polygon>
         </svg>
         <span class="font-medium tracking-tight text-neutral-200">Livex</span>
-        <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-400 border border-neutral-700/60">v1.1</span>
+        <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-400 border border-neutral-700/60">v1.2</span>
       </div>
     </div>
 
     <!-- Top-Center Floating Toolbar -->
     <nav class="pointer-events-auto bg-surface border border-border rounded-xl p-1 shadow-lg flex items-center gap-0.5 text-neutral-400">
       <button class="tool-btn w-8 h-8 rounded-lg flex items-center justify-center" title="Pan Canvas — not yet implemented" aria-disabled="true" data-unavailable>
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewBox="0 0 24 24">
+        <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewBox="0 0 24 24">
           <path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"></path>
           <path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"></path>
           <path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"></path>
@@ -150,13 +51,13 @@
       </button>
 
       <button class="tool-btn w-8 h-8 rounded-lg flex items-center justify-center" title="Select / Move — not yet implemented" aria-disabled="true" data-unavailable>
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewBox="0 0 24 24">
+        <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewBox="0 0 24 24">
           <path d="m3 3 7 18 3-7 7-3L3 3z"></path>
         </svg>
       </button>
 
-      <button class="tool-btn h-8 px-2.5 rounded-lg flex items-center gap-1.5 bg-[#6965db]/20 text-accent-purple-light border border-[#6965db]/30 font-medium text-xs hover:bg-[#6965db]/30" id="open-video-btn" title="Open Local Video (⌘O)">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24">
+      <button class="tool-btn h-8 px-2.5 rounded-lg flex items-center gap-1.5 bg-[#6965db]/20 text-accent-purple-light border border-[#6965db]/30 font-medium text-xs hover:bg-[#6965db]/30 focus-ring" id="open-video-btn" title="Open Local Video (⌘O)">
+        <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24">
           <rect height="20" rx="2.18" width="20" x="2" y="2"></rect>
           <line x1="7" x2="7" y1="2" y2="22"></line>
           <line x1="17" x2="17" y1="2" y2="22"></line>
@@ -167,13 +68,13 @@
       </button>
 
       <button class="tool-btn w-8 h-8 rounded-lg flex items-center justify-center" title="Draw Annotation — not yet implemented" aria-disabled="true" data-unavailable>
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewBox="0 0 24 24">
+        <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewBox="0 0 24 24">
           <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path>
         </svg>
       </button>
 
       <button class="tool-btn w-8 h-8 rounded-lg flex items-center justify-center" title="Keyframe Bookmark — not yet implemented" aria-disabled="true" data-unavailable>
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewBox="0 0 24 24">
+        <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewBox="0 0 24 24">
           <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"></path>
         </svg>
       </button>
@@ -181,7 +82,7 @@
       <div class="w-[1px] h-5 bg-border mx-1"></div>
 
       <button class="tool-btn w-8 h-8 rounded-lg flex items-center justify-center" title="Settings — not yet implemented" aria-disabled="true" data-unavailable>
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewBox="0 0 24 24">
+        <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewBox="0 0 24 24">
           <circle cx="12" cy="12" r="3"></circle>
           <path d="M12 1v6m0 6v6m9-9h-6m-6 0H3"></path>
         </svg>
@@ -194,6 +95,9 @@
   <!-- Main Canvas Center - Multiple States -->
   <main class="relative z-10 flex flex-col items-center justify-center my-auto pointer-events-none px-6" id="main-canvas">
 
+    <!-- Announces session state changes to screen readers -->
+    <div id="session-announcer" class="sr-only-livex" role="status" aria-live="polite" aria-atomic="true"></div>
+
     <!-- STATE: IDLE (Empty workspace) -->
     <div id="state-idle" class="relative flex flex-col items-center text-center max-w-lg transition-transform duration-200">
       <div class="bracket-tl"></div>
@@ -202,7 +106,7 @@
       <div class="bracket-br"></div>
 
       <div class="w-14 h-14 rounded-2xl bg-surface border border-border flex items-center justify-center mb-5 text-neutral-300 shadow-xl pointer-events-auto">
-        <svg class="w-7 h-7 stroke-[1.6]" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
+        <svg aria-hidden="true" class="w-7 h-7 stroke-[1.6]" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
           <rect height="15" rx="2.5" width="20" x="2" y="4.5"></rect>
           <polygon points="10 8.5 15 12 10 15.5 10 8.5"></polygon>
         </svg>
@@ -233,7 +137,7 @@
       <div class="flex items-center justify-between pb-3 px-1">
         <div class="flex items-center gap-2">
           <div class="flex items-center gap-1.5 px-2.5 py-1 rounded bg-surface border border-border">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24">
+            <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24">
               <path d="m16 18 2 2 4-4"></path>
               <path d="M21 12v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
             </svg>
@@ -247,7 +151,7 @@
       </div>
 
       <div class="relative aspect-video w-full rounded-xl overflow-hidden bg-black shadow-2xl">
-        <video id="video" class="w-full h-full object-contain" playsinline preload="metadata"></video>
+        <video id="video" class="w-full h-full object-contain" playsinline preload="metadata" aria-label="Session video"></video>
 
         <div class="absolute top-2 left-2 w-2 h-2 rounded-xs bg-accent-purple opacity-80"></div>
         <div class="absolute top-2 right-2 w-2 h-2 rounded-xs bg-accent-purple opacity-80"></div>
@@ -264,12 +168,12 @@
         </div>
 
         <div class="flex items-center gap-2">
-          <button id="change-video-btn" class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-canvas hover:bg-surface-hover transition-all">
+          <button id="change-video-btn" class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-canvas hover:bg-surface-hover transition-all focus-ring">
             <span class="text-sm font-medium">Change</span>
             <span class="text-[10px] font-mono text-muted-txt" data-shortcut="mod-o">⌘O</span>
           </button>
 
-          <button id="start-session-btn" class="flex items-center gap-2 px-5 py-2 rounded-lg bg-accent-purple hover:bg-[#7874e4] active:scale-[0.98] text-white shadow-md transition-all font-medium">
+          <button id="start-session-btn" class="flex items-center gap-2 px-5 py-2 rounded-lg bg-accent-purple hover:bg-[#7874e4] active:scale-[0.98] text-white shadow-md transition-all font-medium focus-ring">
             <span class="text-sm tracking-tight font-semibold">Start Live Session</span>
             <span class="text-sm">→</span>
           </button>
@@ -308,15 +212,15 @@
 
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-3">
-            <button id="pause-btn" class="w-9 h-9 rounded-lg bg-canvas hover:bg-surface-hover flex items-center justify-center transition-colors">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24">
+            <button id="pause-btn" class="w-9 h-9 rounded-lg bg-canvas hover:bg-surface-hover flex items-center justify-center transition-colors focus-ring" aria-label="Pause session">
+              <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24">
                 <rect x="6" y="4" width="4" height="16"></rect>
                 <rect x="14" y="4" width="4" height="16"></rect>
               </svg>
             </button>
 
-            <button id="resume-btn" class="hidden w-9 h-9 rounded-lg bg-canvas hover:bg-surface-hover flex items-center justify-center transition-colors">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24">
+            <button id="resume-btn" class="hidden w-9 h-9 rounded-lg bg-canvas hover:bg-surface-hover flex items-center justify-center transition-colors focus-ring" aria-label="Resume session">
+              <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24">
                 <polygon points="5 3 19 12 5 21 5 3"></polygon>
               </svg>
             </button>
@@ -325,12 +229,12 @@
           </div>
 
           <div class="flex items-center gap-3">
-            <button id="volume-btn" class="w-9 h-9 rounded-lg bg-canvas hover:bg-surface-hover flex items-center justify-center transition-colors">
-              <span id="volume-icon">🔊</span>
+            <button id="volume-btn" class="w-9 h-9 rounded-lg bg-canvas hover:bg-surface-hover flex items-center justify-center transition-colors focus-ring" aria-label="Mute">
+              <span id="volume-icon" aria-hidden="true">🔊</span>
             </button>
-            <input id="volume-slider" class="w-20 h-1 cursor-pointer" type="range" min="0" max="1" step="0.05" value="1">
-            <button id="fullscreen-btn" class="w-9 h-9 rounded-lg bg-canvas hover:bg-surface-hover flex items-center justify-center transition-colors">
-              <span id="fullscreen-icon">⛶</span>
+            <input id="volume-slider" class="w-20 h-1 cursor-pointer focus-ring" type="range" min="0" max="1" step="0.05" value="1" aria-label="Volume">
+            <button id="fullscreen-btn" class="w-9 h-9 rounded-lg bg-canvas hover:bg-surface-hover flex items-center justify-center transition-colors focus-ring" aria-label="Fullscreen">
+              <span id="fullscreen-icon" aria-hidden="true">⛶</span>
             </button>
           </div>
         </div>
@@ -340,7 +244,7 @@
     <!-- STATE: COMPLETED -->
     <div id="state-completed" class="hidden flex-col items-center text-center max-w-lg">
       <div class="w-16 h-16 rounded-2xl bg-emerald-500/20 border border-emerald-500/50 flex items-center justify-center mb-5">
-        <svg class="w-8 h-8 text-emerald-400" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24">
+        <svg aria-hidden="true" class="w-8 h-8 text-emerald-400" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24">
           <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
           <polyline points="22 4 12 14.01 9 11.01"></polyline>
         </svg>
@@ -349,7 +253,7 @@
       <h2 class="text-2xl font-semibold text-emerald-400 mb-2">Session Completed</h2>
       <p class="text-sm text-muted-txt mb-6">You've reached the end of the video</p>
 
-      <button id="open-another-btn" class="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-accent-purple hover:bg-[#7874e4] text-white font-medium transition-all pointer-events-auto">
+      <button id="open-another-btn" class="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-accent-purple hover:bg-[#7874e4] text-white font-medium transition-all pointer-events-auto focus-ring">
         <span>Open Another Video</span>
       </button>
     </div>
@@ -357,7 +261,7 @@
     <!-- STATE: ERROR -->
     <div id="state-error" class="hidden flex-col items-center text-center max-w-lg">
       <div class="w-16 h-16 rounded-2xl bg-red-500/20 border border-red-500/50 flex items-center justify-center mb-5">
-        <svg class="w-8 h-8 text-red-400" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24">
+        <svg aria-hidden="true" class="w-8 h-8 text-red-400" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24">
           <circle cx="12" cy="12" r="10"></circle>
           <line x1="15" y1="9" x2="9" y2="15"></line>
           <line x1="9" y1="9" x2="15" y2="15"></line>
@@ -367,7 +271,7 @@
       <h2 class="text-xl font-semibold text-red-400 mb-2">Unsupported Video Format</h2>
       <p id="error-message-text" class="text-sm text-muted-txt mb-6">This video format is not supported by your browser.</p>
 
-      <button id="try-another-btn" class="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-accent-purple hover:bg-[#7874e4] text-white font-medium transition-all pointer-events-auto">
+      <button id="try-another-btn" class="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-accent-purple hover:bg-[#7874e4] text-white font-medium transition-all pointer-events-auto focus-ring">
         <span>Try Another Video</span>
       </button>
     </div>
@@ -378,13 +282,13 @@
   <footer class="relative z-20 w-full px-4 pb-4 pointer-events-none flex items-end justify-between">
     <div class="pointer-events-auto bg-surface border border-border rounded-xl p-1 shadow-lg flex items-center gap-1 text-neutral-400">
       <button class="tool-btn w-7 h-7 rounded-lg flex items-center justify-center text-xs" title="Zoom out — not yet implemented" aria-disabled="true" data-unavailable>
-        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" viewBox="0 0 24 24">
+        <svg aria-hidden="true" class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" viewBox="0 0 24 24">
           <line x1="5" x2="19" y1="12" y2="12"></line>
         </svg>
       </button>
       <button class="tool-btn px-2 h-7 rounded-lg text-xs font-mono font-medium text-neutral-300" title="Zoom level — not yet implemented" aria-disabled="true" data-unavailable>100%</button>
       <button class="tool-btn w-7 h-7 rounded-lg flex items-center justify-center text-xs" title="Zoom in — not yet implemented" aria-disabled="true" data-unavailable>
-        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" viewBox="0 0 24 24">
+        <svg aria-hidden="true" class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" viewBox="0 0 24 24">
           <line x1="12" x2="12" y1="5" y2="19"></line>
           <line x1="5" x2="19" y1="12" y2="12"></line>
         </svg>
@@ -399,6 +303,5 @@
   <!-- Hidden file input -->
   <input id="video-input" type="file" accept="video/*" hidden>
 
-  <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

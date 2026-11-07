@@ -184,9 +184,41 @@ loaded only after a native failure, never on the default path.
 
 ## 5. Deferred / follow-ups
 
-- `style.css` is still an unreferenced leftover; safe to delete when convenient.
-- Tailwind is still the CDN build (a production build would inline it locally).
-- `localplay/` remains an untouched upstream reference clone.
-- Optional: move the `<script>` from CDN Tailwind to a bundled build so the page
-  makes **zero** external requests (today the only outbound requests are Google
-  Fonts + the Tailwind CDN, both static assets — never video data).
+- `localplay/` remains an untouched upstream reference clone (make it a proper
+  submodule or drop it).
+
+### Completed since the first pass (v1.2)
+
+- **Tailwind bundled locally** — `tailwind.config.js` mirrors the previous CDN
+  config; the inline `<style>` block moved to `src/styles/app.css`.
+- **Fonts self-hosted** via `@fontsource/inter` + `@fontsource/jetbrains-mono`
+  (latin subsets, only the weights used: 400/500/600 and 400/500).
+- **`style.css` and `script.js` deleted** — both were unreferenced.
+- **Accessibility pass** — see §6 below.
+- **Result: zero external requests.** Verified twice: a normal load shows 7
+  requests, all to localhost; and a test that aborts every non-localhost request
+  still plays a full session, with all fonts loaded and the theme intact.
+
+---
+
+## 6. Accessibility (v1.2)
+
+Audited against the running app, then fixed:
+
+| Issue | Fix |
+| --- | --- |
+| 2 icon-only buttons had no accessible name | `aria-label` on volume/fullscreen, kept in sync with state (`Mute`/`Unmute`, `Fullscreen`/`Exit fullscreen`) |
+| `<video>` had no accessible name | `aria-label="Session video"` |
+| Session changes were colour/icon only — invisible to screen readers | `#session-announcer` live region (`role="status"`, `aria-live="polite"`, `aria-atomic`) announcing idle/ready/live/paused/completed/error |
+| Decorative SVGs announced as images | 18 SVGs marked `aria-hidden="true"` |
+| No visible keyboard focus | `.focus-ring` (`:focus-visible`, `#a5a1f8`, 2px offset) on 10 interactive controls |
+| Focus could be stranded on a hidden screen after a state change | `syncFocus()` moves focus to the primary action of the new state |
+| Decorative drop overlay exposed to AT | `aria-hidden="true"` (keyboard users use the toolbar Open Video button) |
+| Volume slider unlabelled | `aria-label="Volume"` |
+
+Contrast check: `--muted-txt` (#8e8e93) on `#121212` measures **5.75:1**, above
+the 4.5:1 AA threshold for body text.
+
+Remaining known gaps: `prefers-reduced-motion` is not yet honoured (the
+`animate-pulse-dot` LIVE indicator pulses unconditionally), and the app has not
+been tested with a real screen reader.
