@@ -199,3 +199,36 @@
     overflow: hidden;
   }
 }
+
+/* ==================================================================
+ * Focus mode (roadmap 2.4) — hide every distraction but the video.
+ * ================================================================== */
+@layer components {
+  body.focus-mode header,
+  body.focus-mode footer,
+  body.focus-mode #state-active > div:first-child,
+  body.focus-mode #control-panel {
+    display: none !important;
+  }
+
+  body.focus-mode main {
+    padding: 0 !important;
+  }
+
+  body.focus-mode #state-active {
+    max-width: 100vw;
+  }
+
+  body.focus-mode #state-active .aspect-video {
+    border-radius: 0;
+    height: 100vh;
+  }
+
+  body.focus-mode {
+    background-color: #000;
+  }
+
+  body.focus-mode #focus-overlay {
+    display: block !important;
+  }
+}

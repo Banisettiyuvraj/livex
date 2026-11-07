@@ -16,6 +16,23 @@ export interface SessionSnapshot {
   metadata: MediaMetadata | null;
   progress: SessionProgress;
   playbackRate: number;
+  integrity: SessionIntegrity;
+}
+
+/**
+ * Honest self-reporting that replaces a hard anti-skip wall (roadmap 2.1).
+ *
+ * Anti-skip is a focus aid, never DRM — client-side limits are always
+ * bypassable. Instead of pretending otherwise, we count attempts and show the
+ * user what actually happened.
+ */
+export interface SessionIntegrity {
+  /** Times the user tried to jump past the ceiling. */
+  skipAttempts: number;
+  /** Total seconds of playback that never ran forwards past the ceiling. */
+  watchedSeconds: number;
+  /** Longest unbroken stretch of real playback, in seconds. */
+  longestStretchSeconds: number;
 }
 
 export type SessionChangeReason =
@@ -24,7 +41,9 @@ export type SessionChangeReason =
   | "started"
   | "paused"
   | "resumed"
+  | "resumed-at"
   | "ended"
+  | "advanced"
   | "error"
   | "reset";
 
@@ -43,6 +62,7 @@ export const SESSION_TRANSITIONS: Record<SessionState, readonly SessionState[]> 
   ready: ["live", "idle", "error"],
   live: ["paused", "completed", "error", "idle"],
   paused: ["live", "error", "idle"],
+  // Playlist advancement goes completed → ready without a trip through idle.
   completed: ["idle", "ready"],
   error: ["idle", "ready"],
 };

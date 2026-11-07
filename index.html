@@ -35,7 +35,7 @@
           <polygon points="5 3 19 12 5 21 5 3"></polygon>
         </svg>
         <span class="font-medium tracking-tight text-neutral-200">Livex</span>
-        <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-400 border border-neutral-700/60">v1.3</span>
+        <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-400 border border-neutral-700/60">v1.4</span>
       </div>
     </div>
 
@@ -131,6 +131,15 @@
         <span>.mp4, .mkv, .webm</span>
       </div>
 
+      <!-- Playlist queue (roadmap 2.3) -->
+      <div id="playlist-wrap" class="hidden w-full max-w-sm mt-8 pointer-events-auto text-left">
+        <div class="flex items-center justify-between mb-1.5 px-1">
+          <span class="text-[10px] uppercase tracking-wider text-neutral-500 font-medium">Queue</span>
+          <button id="playlist-clear-btn" class="text-[10px] text-neutral-500 hover:text-red-400 transition-colors focus-ring rounded px-1">Clear</button>
+        </div>
+        <ol id="playlist-list" class="space-y-1" aria-label="Playback queue"></ol>
+      </div>
+
       <!-- Recently opened files (metadata only, stored on this device) -->
       <div id="recent-wrap" class="hidden w-full max-w-sm mt-8 pointer-events-auto">
         <div class="flex items-center justify-between mb-2 px-1">
@@ -171,6 +180,22 @@
         <div class="absolute bottom-2 right-2 w-2 h-2 rounded-xs bg-accent-purple opacity-80"></div>
       </div>
 
+      <!-- Resume from a previous session (roadmap 2.6). Deliberately an
+           explicit choice, never a silent resume. -->
+      <div id="resume-banner" class="hidden mt-4 w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl bg-accent-purple/10 border border-accent-purple/40">
+        <div class="flex items-center gap-2 min-w-0">
+          <svg aria-hidden="true" class="w-4 h-4 text-accent-purple-light shrink-0" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24">
+            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+            <path d="M3 3v5h5"></path>
+          </svg>
+          <span class="text-xs text-neutral-200 truncate">You stopped at <span id="resume-time" class="font-mono text-accent-purple-light">00:00</span>. Resume from there?</span>
+        </div>
+        <div class="flex items-center gap-1.5 shrink-0">
+          <button id="resume-accept-btn" class="px-2.5 py-1 rounded-md bg-accent-purple hover:bg-[#7874e4] text-white text-[11px] font-medium transition-colors focus-ring">Resume</button>
+          <button id="resume-decline-btn" class="px-2 py-1 rounded-md text-[11px] text-neutral-400 hover:text-white transition-colors focus-ring">Start over</button>
+        </div>
+      </div>
+
       <div class="mt-6 flex flex-col sm:flex-row items-center justify-between w-full gap-4 p-3 rounded-xl bg-surface border border-border shadow-xl">
         <div class="flex items-center gap-2">
           <div class="flex items-center px-2.5 py-1.5 rounded-lg bg-canvas text-neutral-300">
@@ -207,6 +232,7 @@
           <span class="text-[10px] text-muted-txt font-mono">Simulated Live</span>
         </div>
         <div class="flex items-center gap-2">
+          <span id="queue-badge" class="hidden text-[10px] font-mono px-1.5 py-0.5 rounded bg-surface border border-border text-neutral-400"></span>
           <span id="filename-active" class="text-xs text-muted-txt font-mono"></span>
         </div>
       </div>
@@ -215,7 +241,7 @@
         <!-- Video is moved here during playback -->
       </div>
 
-      <div class="mt-3 p-3 rounded-xl bg-surface border border-border shadow-xl">
+      <div id="control-panel" class="mt-3 p-3 rounded-xl bg-surface border border-border shadow-xl">
         <div class="mb-3">
           <div class="relative w-full h-1 bg-neutral-800 rounded-full cursor-not-allowed">
             <div id="progress-fill" class="absolute left-0 top-0 bottom-0 w-0 bg-accent-purple rounded-full transition-all duration-300"></div>
@@ -224,6 +250,9 @@
           </div>
           <!-- Bookmark chips and the note-builder live here -->
           <div id="annotation-bar" class="mt-2.5 flex flex-wrap items-center gap-1.5 empty:hidden"></div>
+
+          <!-- Chapters parsed from the container (roadmap 2.3) -->
+          <div id="chapter-bar" class="hidden mt-2.5 flex items-center gap-1.5 overflow-x-auto"></div>
         </div>
 
         <!-- Note transport: shows the note whose timestamp playback just passed -->
@@ -264,6 +293,17 @@
                 <rect x="12" y="12" width="8" height="6" rx="1"></rect>
               </svg>
             </button>
+            <button id="subtitle-btn" class="w-9 h-9 rounded-lg bg-canvas hover:bg-surface-hover flex items-center justify-center transition-colors focus-ring" aria-label="Load subtitles (.vtt or .srt)" aria-pressed="false" title="Load subtitles (.vtt or .srt)">
+              <span class="font-mono text-[10px] font-bold">CC</span>
+            </button>
+            <button id="focus-btn" class="w-9 h-9 rounded-lg bg-canvas hover:bg-surface-hover flex items-center justify-center transition-colors focus-ring" aria-label="Focus mode (Z)" title="Focus mode — hide everything but the video (Z)">
+              <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24">
+                <path d="M8 3H5a2 2 0 0 0-2 2v3"></path>
+                <path d="M21 8V5a2 2 0 0 0-2-2h-3"></path>
+                <path d="M3 16v3a2 2 0 0 0 2 2h3"></path>
+                <path d="M16 21h3a2 2 0 0 0 2-2v-3"></path>
+              </svg>
+            </button>
             <button id="fullscreen-btn" class="w-9 h-9 rounded-lg bg-canvas hover:bg-surface-hover flex items-center justify-center transition-colors focus-ring" aria-label="Fullscreen">
               <span id="fullscreen-icon" aria-hidden="true">⛶</span>
             </button>
@@ -282,11 +322,36 @@
       </div>
 
       <h2 class="text-2xl font-semibold text-emerald-400 mb-2">Session Completed</h2>
-      <p class="text-sm text-muted-txt mb-6">You've reached the end of the video</p>
+      <p class="text-sm text-muted-txt mb-5">You've reached the end of the video</p>
 
-      <button id="open-another-btn" class="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-accent-purple hover:bg-[#7874e4] text-white font-medium transition-all pointer-events-auto focus-ring">
-        <span>Open Another Video</span>
-      </button>
+      <!-- Playback integrity summary (roadmap 2.1) -->
+      <div id="integrity-summary" class="w-full rounded-xl border border-border bg-surface/70 px-4 py-3 mb-5">
+        <p class="text-[10px] uppercase tracking-wider text-neutral-500 mb-2 font-medium">This session</p>
+        <dl class="grid grid-cols-3 gap-2 text-center">
+          <div>
+            <dt class="text-[10px] text-neutral-500 mb-0.5">Watched</dt>
+            <dd id="integrity-watched" class="font-mono text-sm text-emerald-400">0%</dd>
+          </div>
+          <div>
+            <dt class="text-[10px] text-neutral-500 mb-0.5">Skip attempts</dt>
+            <dd id="integrity-skips" class="font-mono text-sm text-neutral-200">0</dd>
+          </div>
+          <div>
+            <dt class="text-[10px] text-neutral-500 mb-0.5">Longest stretch</dt>
+            <dd id="integrity-stretch" class="font-mono text-sm text-neutral-200">0m</dd>
+          </div>
+        </dl>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <button id="next-in-queue-btn" class="hidden items-center gap-2 px-5 py-2.5 rounded-lg bg-accent-purple hover:bg-[#7874e4] text-white font-medium transition-all pointer-events-auto focus-ring">
+          <span>Next in queue</span>
+          <span class="text-sm">→</span>
+        </button>
+        <button id="open-another-btn" class="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-canvas border border-border hover:bg-surface-hover text-neutral-200 font-medium transition-all pointer-events-auto focus-ring">
+          <span>Open Another Video</span>
+        </button>
+      </div>
     </div>
 
     <!-- STATE: ERROR -->
@@ -308,6 +373,17 @@
     </div>
 
   </main>
+
+  <!-- Focus mode overlay (roadmap 2.4): the only chrome visible when active -->
+  <div id="focus-overlay" class="hidden fixed inset-x-0 bottom-0 z-40 px-5 pb-5 pointer-events-none">
+    <div class="flex items-center justify-center">
+      <div class="pointer-events-auto flex items-center gap-3 px-4 py-2 rounded-full bg-black/70 border border-border backdrop-blur-sm opacity-40 hover:opacity-100 transition-opacity">
+        <span id="focus-time" class="font-mono text-sm text-neutral-200">00:00 / 00:00</span>
+        <span class="w-px h-4 bg-border"></span>
+        <span class="text-[10px] text-neutral-500">Z or Esc to exit focus mode</span>
+      </div>
+    </div>
+  </div>
 
   <!-- Bottom Utility Controls -->
   <footer class="relative z-20 w-full px-4 pb-4 pointer-events-none flex items-end justify-between">
@@ -347,6 +423,8 @@
       <dt class="font-mono text-accent-purple-light">B</dt><dd class="text-neutral-300">Bookmark current time</dd>
       <dt class="font-mono text-accent-purple-light">N</dt><dd class="text-neutral-300">Add a note here</dd>
       <dt class="font-mono text-accent-purple-light">P</dt><dd class="text-neutral-300">Picture in picture</dd>
+      <dt class="font-mono text-accent-purple-light">Z</dt><dd class="text-neutral-300">Focus mode (hide everything but the video)</dd>
+      <dt class="font-mono text-accent-purple-light">Shift + N</dt><dd class="text-neutral-300">Next file in the queue</dd>
       <dt class="font-mono text-accent-purple-light">M</dt><dd class="text-neutral-300">Mute / unmute</dd>
       <dt class="font-mono text-accent-purple-light">F</dt><dd class="text-neutral-300">Fullscreen</dd>
       <dt class="font-mono text-accent-purple-light">Esc</dt><dd class="text-neutral-300">Exit fullscreen / close dialog</dd>
@@ -371,10 +449,22 @@
       uploaded, converted, or stored by this app.
     </p>
     <ul class="text-[11px] text-neutral-500 space-y-1 mb-4 font-mono">
-      <li>Version <span id="about-version">1.3.0</span></li>
+      <li>Version <span id="about-version">1.4.0</span></li>
       <li id="about-storage-state">Local storage: checking…</li>
       <li>Engine: <span id="about-engine">native</span></li>
     </ul>
+    <!-- Local watching statistics (roadmap 2.2). Computed on the device. -->
+    <div id="analytics-panel" class="rounded-lg border border-border bg-canvas/60 px-3 py-2.5 mb-4">
+      <p class="text-[10px] uppercase tracking-wider text-neutral-500 mb-2 font-medium">Your watching</p>
+      <dl class="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]">
+        <div class="flex items-center justify-between"><dt class="text-neutral-500">Files</dt><dd id="analytics-files" class="font-mono text-neutral-200">0</dd></div>
+        <div class="flex items-center justify-between"><dt class="text-neutral-500">Finished</dt><dd id="analytics-completed" class="font-mono text-neutral-200">0</dd></div>
+        <div class="flex items-center justify-between"><dt class="text-neutral-500">Watch time</dt><dd id="analytics-watched" class="font-mono text-neutral-200">0m</dd></div>
+        <div class="flex items-center justify-between"><dt class="text-neutral-500">Completion</dt><dd id="analytics-rate" class="font-mono text-neutral-200">0%</dd></div>
+      </dl>
+      <p id="analytics-hint" class="text-[10px] text-neutral-500 mt-2 leading-relaxed"></p>
+    </div>
+
     <div class="flex items-center gap-2">
       <button id="clear-all-data-btn" class="px-3 py-1.5 rounded-lg bg-red-500/15 border border-red-500/40 text-red-300 text-xs font-medium hover:bg-red-500/25 transition-colors focus-ring">
         Clear saved data
@@ -384,7 +474,8 @@
   </dialog>
 
   <!-- Hidden file input -->
-  <input id="video-input" type="file" accept="video/*" hidden>
+  <input id="video-input" type="file" accept="video/*" multiple hidden>
+  <input id="subtitle-input" type="file" accept=".vtt,.srt,text/vtt,application/x-subrip" hidden>
 
 </body>
 </html>

@@ -105,7 +105,7 @@ the control bar. Small change, frequent request.
 
 ---
 
-## Part 2 — Meaningful product features (medium effort)
+## Part 2 — Meaningful product features ✅ SHIPPED in v1.4
 
 ### 2.1 "Playback integrity" report instead of a hard anti-skip wall
 
@@ -154,6 +154,36 @@ is the "class is running" aesthetic already implied by the LIVE badge. Pure CSS
 If the tab closes mid-session, offer "Resume at 12:34" on next open (needs 1.1).
 Requires a deliberate exception to "always start at 0:00" — make it an explicit
 user choice, not a silent resume, to stay true to the spec.
+
+---
+
+### Implementation notes (v1.4)
+
+All six Part 2 items are implemented and covered by `tests/features2.mjs`
+(69 checks, dev + production build).
+
+| Item | Where | Notes |
+| --- | --- | --- |
+| 2.1 integrity | `SessionManager.getIntegrity()`, `#integrity-summary` | Counts skip attempts, media-seconds watched and the longest unbroken forward stretch. Shown on the completed screen. The ceiling still blocks; the report just makes it honest. |
+| 2.2 analytics | `src/session/AnalyticsService.ts`, About dialog | Pure `summarise()` over the history store, unit-testable without IndexedDB. Files, finished count, watch time, completion rate and a nearest-to-done hint. |
+| 2.3 chapters | `src/files/ChapterReader.ts`, `#chapter-bar` | Walks ISO BMFF boxes for a Nero `chpl` atom inside `moov/udta`. Reuses the probe's head/tail read windows, so no extra I/O. Malformed data returns `[]` rather than throwing. |
+| 2.3 playlist | `src/session/PlaylistService.ts`, queue panel + `#queue-badge` | Multi-select or multi-drop builds a queue. A session advances on demand (`Next in queue`, `Shift+N`), not automatically. |
+| 2.4 focus mode | `toggleFocusMode()`, `body.focus-mode` | Hides header, footer and the whole control panel; leaves a low-opacity time pill. `Z` toggles, `Esc` exits. |
+| 2.5 subtitles | `src/session/SubtitleService.ts`, `#subtitle-btn` | `.vtt` and `.srt` from disk only. SRT is converted to WebVTT in memory; the track is a `blob:` URL revoked on replace and on file change. |
+| 2.6 resume | `SessionManager.startAt()`, `#resume-banner` | Explicit offer, never a silent resume. Requires clearing both a 5s floor and 10% of the file so short clips do not nag. The ceiling moves to the resume point. |
+
+**Decisions worth keeping:**
+
+- **Chapters are read, not generated.** ffmpeg's `chpl` writer uses
+  `version(1) flags(3) reserved(4) count(1)` — verified by dumping real bytes,
+  because the spec is widely misquoted and version 0/1 layouts differ in
+  practice.
+- **Playlist advancement is manual.** Auto-advance on `ended` would fight the
+  "simulated live" framing; the user says when the next item starts.
+- **Nothing new is persisted.** The queue holds `File` handles for this page
+  session only. Captions and chapters are re-read per file.
+- **Subtitle failure is non-fatal.** A bad caption file announces and logs; it
+  never disturbs playback or the session state.
 
 ---
 

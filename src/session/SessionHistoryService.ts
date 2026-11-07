@@ -23,7 +23,7 @@ const FLUSH_INTERVAL_MS = 5000;
 export interface SessionHistory {
   store: LocalMetadataStore;
   getEntry(): HistoryEntry | null;
-  trackOpen(metadata: MediaMetadata): Promise<void>;
+  trackOpen(metadata: MediaMetadata): Promise<HistoryEntry | null>;
   recordProgress(currentTime: number, furthestTime: number, force?: boolean): void;
   recordCompletion(duration: number): void;
   listRecent(limit?: number): Promise<HistoryEntry[]>;
@@ -46,8 +46,11 @@ export class SessionHistoryService implements SessionHistory {
     return this.entry;
   }
 
-  /** Called when a file is loaded into the player. */
-  async trackOpen(metadata: MediaMetadata): Promise<void> {
+  /**
+   * Called when a file is loaded into the player. Returns the stored record so
+   * the caller can offer to resume a half-watched file (roadmap 2.6).
+   */
+  async trackOpen(metadata: MediaMetadata): Promise<HistoryEntry | null> {
     const key = mediaFingerprint(metadata.fileName, metadata.fileSize, metadata.duration);
     const existing = await this.store.getHistory(key);
     const now = Date.now();
@@ -73,6 +76,7 @@ export class SessionHistoryService implements SessionHistory {
 
     this.sessionStartWallClock = now;
     await this.store.putHistory(this.entry);
+    return this.entry;
   }
 
   /** Throttled position flush. `force` bypasses the throttle (pause/complete). */

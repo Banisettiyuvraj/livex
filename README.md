@@ -71,9 +71,17 @@ DOM. Swapping engines touches `PlaybackAdapter` + one line in `main.ts`.
 - **Bookmarks and timestamped notes** — `B` to bookmark, `N` to write a note;
   notes resurface as you play past them.
 - **Continue where you left off** — recent files with progress, stored locally.
+- **Resume an interrupted session** — an explicit offer, never a silent jump.
 - **Keyboard-first control** — arrows, `J/K/L`, `P` for picture-in-picture.
 - **Picture in picture** and fullscreen.
+- **Focus mode** (`Z`) — hides every distraction except the timer.
 - **Three time readouts** — elapsed / remaining / percentage.
+- **Chapters** read from MP4 `chpl` atoms and shown as clickable chips.
+- **Playlist queue** — drop several files, advance when you are ready.
+- **Local subtitles** — `.vtt` or `.srt` from disk, converted in memory.
+- **Playback integrity report** — watched %, skip attempts and longest
+  uninterrupted stretch, instead of a silent, unenforceable wall.
+- **Your watching stats** — local-only totals in the About dialog.
 - Real container + codec detection, so unsupported files say *why*.
 
 ## Keyboard
@@ -87,6 +95,8 @@ DOM. Swapping engines touches `PlaybackAdapter` + one line in `main.ts`.
 | `B` | Bookmark current time |
 | `N` | Note at current time |
 | `P` | Picture in picture |
+| `Z` | Focus mode |
+| `Shift + N` | Next file in the queue |
 | `M` / `F` | Mute / fullscreen |
 | `Esc` | Exit fullscreen or close dialog |
 | `?` | Shortcuts panel |
@@ -120,11 +130,15 @@ Two things, both opt-in and both removable from **Menu → About LiveX → Clear
 saved data**:
 
 1. **Session history** — file name, size, duration, last position and furthest
-   position, per file. Stored in IndexedDB.
+   position, per file. Stored in IndexedDB. The About dialog aggregates these
+   into local watching statistics.
 2. **Bookmarks and notes** — timestamp plus your note text (capped at 500
    characters), keyed to the same file fingerprint.
 
 A small `localStorage` key remembers only which time-display mode you chose.
+
+Subtitles and chapters are read per file and never stored. The playlist queue
+holds `File` handles for the current page only.
 
 **No video, audio, frame or thumbnail data is ever written to disk.** Files are
 identified by a `name::size::duration` fingerprint, not by content; the test
@@ -155,6 +169,8 @@ Two suites:
   the 1× lock, completion semantics and privacy.
 - `npm run test:features` — 36 checks covering history, bookmarks/notes, the
   keyboard map, dialogs, picture-in-picture and time display modes.
+- `npm run test:features2` — 69 checks covering the integrity report, resume,
+  focus mode, playlist, chapters, subtitles and analytics.
 - `npm run verify` — build, then verify the output over http **and** `file://`.
 
 Fixtures are generated with ffmpeg and live in `tests/fixtures/`.

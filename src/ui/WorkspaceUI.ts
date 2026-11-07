@@ -16,9 +16,13 @@ import type { PlaybackAdapter } from "../playback/PlaybackAdapter";
 import type { LocalFileManager } from "../files/LocalFileManager";
 import type { SessionHistoryService } from "../session/SessionHistoryService";
 import type { AnnotationService } from "../session/AnnotationService";
+import { PlaylistService } from "../session/PlaylistService";
+import { SubtitleService } from "../session/SubtitleService";
+import { AnalyticsService } from "../session/AnalyticsService";
+import { readChapters, type Chapter } from "../files/ChapterReader";
 import type { Annotation, HistoryEntry } from "../files/LocalMetadataStore";
 import { PlaybackError } from "../playback/PlaybackErrors";
-import { formatFileSize, formatTime } from "./format";
+import { formatFileSize, formatStretch, formatTime } from "./format";
 
 function el<T extends HTMLElement>(id: string): T {
   const node = document.getElementById(id);
@@ -41,6 +45,10 @@ export interface WorkspaceUIOptions {
 type TimeDisplayMode = "elapsed" | "remaining" | "percent";
 const TIME_MODES: TimeDisplayMode[] = ["elapsed", "remaining", "percent"];
 const TIME_MODE_STORAGE_KEY = "livex.timeDisplayMode";
+/** Never offer to resume within the first few seconds of a file. */
+const MIN_RESUME_SECONDS = 5;
+/** ...or within this fraction of it, so short clips do not nag. */
+const MIN_RESUME_FRACTION = 0.1;
 
 export class WorkspaceUI {
   private readonly manager: SessionManager;
@@ -56,8 +64,16 @@ export class WorkspaceUI {
 
   private readonly history: SessionHistoryService;
   private readonly annotations: AnnotationService;
+  private readonly playlist = new PlaylistService();
+  private readonly subtitles = new SubtitleService();
+  private analytics: AnalyticsService | null = null;
+  private chapters: Chapter[] = [];
   private timeMode: TimeDisplayMode = "elapsed";
   private noteComposerOpen = false;
+  /** Where a half-watched file was left, offered on the ready screen (2.6). */
+  private pendingResume: number | null = null;
+  private focusMode = false;
+  private focusClockTimer: number | null = null;
 
   constructor(options: WorkspaceUIOptions) {
     this.manager = options.manager;
@@ -65,6 +81,7 @@ export class WorkspaceUI {
     this.files = options.files;
     this.history = options.history;
     this.annotations = options.annotations;
+    this.analytics = new AnalyticsService(options.history.store);
     this.activeVideoSlot = options.activeVideoSlot;
     this.readyVideoSlot = options.readyVideoSlot;
 
@@ -92,6 +109,9 @@ export class WorkspaceUI {
     this.bindLifecycle();
     this.bindHistory();
     this.bindAnnotations();
+    this.bindResume();
+    this.bindPlaylist();
+    this.bindSubtitles();
     this.bindDialogs();
 
     this.applyPlatformShortcuts();
@@ -201,12 +221,80 @@ export class WorkspaceUI {
     this.syncVideoSlot(state);
     this.syncStatusBadges(state);
     this.syncSessionButtons(state);
+    this.syncResumeBanner(state);
+    this.syncQueueBadge();
+    if (state === "ready") this.renderChapters();
     this.syncFocus(state);
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Resume an interrupted session (roadmap 2.6)                      */
+  /* ---------------------------------------------------------------- */
+
+  /**
+   * Show "Resume at mm:ss" only when this exact file was left part-watched.
+   * This is a deliberate exception to "always start at 0:00" and is offered
+   * as a choice, never applied silently.
+   */
+  private syncResumeBanner(state: SessionState): void {
+    const banner = document.getElementById("resume-banner");
+    if (!banner) return;
+
+    const resumeAt = this.pendingResume;
+    const show = state === "ready" && resumeAt !== null && this.isWorthResuming(resumeAt);
+
+    banner.classList.toggle("hidden", !show);
+    banner.classList.toggle("flex", show);
+    if (!show) return;
+
+    const node = document.getElementById("resume-time");
+    if (node) node.textContent = formatTime(resumeAt);
+  }
+
+  /**
+   * A resume offer is only worth interrupting for when the stop point clears
+   * both an absolute and a relative floor — otherwise short clips would prompt
+   * after two seconds of playback.
+   */
+  private isWorthResuming(time: number): boolean {
+    const duration = this.manager.getProgress().duration;
+    if (!Number.isFinite(time) || time < MIN_RESUME_SECONDS) return false;
+    return duration <= 0 ? true : time >= duration * MIN_RESUME_FRACTION;
+  }
+
+  private bindResume(): void {
+    const accept = document.getElementById("resume-accept-btn");
+    const decline = document.getElementById("resume-decline-btn");
+
+    const onAccept = async (): Promise<void> => {
+      const target = this.pendingResume;
+      if (target === null) return;
+      this.pendingResume = null;
+      await this.manager.startAt(target);
+    };
+
+    const onDecline = (): void => {
+      this.pendingResume = null;
+      this.syncResumeBanner(this.manager.getState());
+      this.announce("Starting from the beginning.");
+    };
+
+    accept?.addEventListener("click", () => void onAccept());
+    decline?.addEventListener("click", onDecline);
+    this.cleanups.push(
+      () => accept?.removeEventListener("click", () => void onAccept()),
+      () => decline?.removeEventListener("click", onDecline),
+    );
   }
 
   /** Flush watch position to history on meaningful transitions (feature 1.1). */
   private onSessionStateForPersistence(state: SessionState): void {
+    if (state === "live") this.pendingResume = null;
     const progress = this.manager.getProgress();
+
+    if (state === "completed") this.renderIntegrity();
+    // Focus mode only makes sense while a session is running (2.4).
+    if (state !== "live" && state !== "paused" && this.focusMode) this.toggleFocusMode(false);
 
     if (state === "paused") {
       this.history.recordProgress(progress.currentTime, progress.furthestTime, true);
@@ -359,6 +447,29 @@ export class WorkspaceUI {
     display.setAttribute("aria-label", label);
   }
 
+  /** Fill in the end-of-session honesty report (roadmap 2.1). */
+  private renderIntegrity(): void {
+    const percent = this.manager.getIntegrityPercent();
+    const { skipAttempts, longestStretchSeconds } = this.manager.getIntegrity();
+
+    const watched = document.getElementById("integrity-watched");
+    if (watched) {
+      watched.textContent = `${percent}%`;
+      watched.classList.toggle("text-emerald-400", percent >= 90);
+      watched.classList.toggle("text-amber-400", percent < 90);
+    }
+
+    const skips = document.getElementById("integrity-skips");
+    if (skips) {
+      skips.textContent = String(skipAttempts);
+      skips.classList.toggle("text-amber-400", skipAttempts > 0);
+      skips.classList.toggle("text-neutral-200", skipAttempts === 0);
+    }
+
+    const stretch = document.getElementById("integrity-stretch");
+    if (stretch) stretch.textContent = formatStretch(longestStretchSeconds);
+  }
+
   private showError(details: PlaybackErrorDetails): void {
     el("error-message-text").textContent = details.hint
       ? `${details.message} ${details.hint}`
@@ -387,8 +498,19 @@ export class WorkspaceUI {
 
     const onDrop = (event: DragEvent): void => {
       event.preventDefault();
-      const file = event.dataTransfer?.files?.[0];
-      if (file) void this.handleFile(file);
+      const dropped = [...(event.dataTransfer?.files ?? [])];
+      if (dropped.length === 0) return;
+
+      // Dropping several files builds a queue (roadmap 2.3).
+      if (dropped.length > 1) {
+        this.playlist.set(dropped);
+        this.renderPlaylist();
+        this.announce(`${dropped.length} files queued.`);
+      } else {
+        this.playlist.clear();
+        this.renderPlaylist();
+      }
+      void this.handleFile(dropped[0]!);
     };
 
     for (const type of ["dragenter", "dragover"] as const) {
@@ -422,9 +544,20 @@ export class WorkspaceUI {
     bindOpen("try-another-btn");
 
     const onChange = (): void => {
-      const file = input.files?.[0];
+      const picked = [...(input.files ?? [])];
       input.value = "";
-      if (file) void this.handleFile(file);
+      if (picked.length === 0) return;
+
+      // More than one file is a queue (roadmap 2.3); a single file is a drop.
+      if (picked.length > 1) {
+        this.playlist.set(picked);
+        this.renderPlaylist();
+        this.announce(`${picked.length} files queued.`);
+      } else {
+        this.playlist.clear();
+        this.renderPlaylist();
+      }
+      void this.handleFile(picked[0]!);
     };
     input.addEventListener("change", onChange);
     this.cleanups.push(() => input.removeEventListener("change", onChange));
@@ -450,15 +583,40 @@ export class WorkspaceUI {
       }
 
       this.lastFileSummary = "";
+      // Chapters belong to the previous file; clear them immediately so a slow
+      // parse can never show stale markers for the new video.
+      this.chapters = [];
+      this.renderChapters();
+      // Captions belong to the previous file; drop them on replacement.
+      this.subtitles.detachFrom(this.video);
+      this.syncSubtitleButton();
       this.files.setCurrentFile(file);
       const metadata = await this.manager.loadFile(file);
 
       // Record the open for "continue where you left off" and load any notes
       // this file already has (metadata only — never the video).
-      await this.history.trackOpen(metadata);
+      const ledger = await this.history.trackOpen(metadata);
+      this.pendingResume =
+        ledger && !ledger.completed && this.isWorthResuming(ledger.furthestTime)
+          ? ledger.furthestTime
+          : null;
+      // `transition("ready")` already rendered before this point, so the
+      // resume banner needs an explicit re-sync once the ledger is known.
+      this.syncResumeBanner(this.manager.getState());
       await this.annotations.setMedia(metadata);
       this.annotations.resetCrossingCursor(0);
       this.hideNoteTransport();
+
+      // Chapter parsing is best-effort and never blocks playback.
+      void readChapters(file)
+        .then((found) => {
+          this.chapters = found;
+          this.renderChapters();
+        })
+        .catch(() => {
+          this.chapters = [];
+          this.renderChapters();
+        });
       // Real decode failures arrive through the adapter `error` event.
     } catch (error) {
       this.files.setCurrentFile(null);
@@ -530,6 +688,12 @@ export class WorkspaceUI {
     const onTimeMode = (): void => this.cycleTimeMode();
     timeDisplay?.addEventListener("click", onTimeMode);
     this.cleanups.push(() => timeDisplay?.removeEventListener("click", onTimeMode));
+
+    // Focus mode (roadmap 2.4).
+    const focusBtn = document.getElementById("focus-btn");
+    const onFocus = (): void => this.toggleFocusMode();
+    focusBtn?.addEventListener("click", onFocus);
+    this.cleanups.push(() => focusBtn?.removeEventListener("click", onFocus));
 
     // Picture in picture (feature 1.5).
     const pipBtn = document.getElementById("pip-btn");
@@ -693,9 +857,22 @@ export class WorkspaceUI {
         return;
       }
 
+      if (event.key.toLowerCase() === "z" && active) {
+        event.preventDefault();
+        this.toggleFocusMode();
+        return;
+      }
+
       if (event.key.toLowerCase() === "b" && this.annotations.hasMedia()) {
         event.preventDefault();
         void this.annotations.add("bookmark", this.manager.getProgress().currentTime);
+        return;
+      }
+
+      // Shift+N jumps to the next queued file (roadmap 2.3).
+      if (event.key.toLowerCase() === "n" && event.shiftKey && this.playlist.hasNext()) {
+        event.preventDefault();
+        void this.advanceQueue();
         return;
       }
 
@@ -982,6 +1159,255 @@ export class WorkspaceUI {
   }
 
   /* ---------------------------------------------------------------- */
+  /* Chapters (roadmap 2.3)                                           */
+  /* ---------------------------------------------------------------- */
+
+  private renderChapters(): void {
+    const bar = document.getElementById("chapter-bar");
+    if (!bar) return;
+
+    bar.replaceChildren();
+    // One chapter is not worth a row of chrome.
+    if (this.chapters.length < 2) {
+      bar.classList.add("hidden");
+      return;
+    }
+    bar.classList.remove("hidden");
+
+    const duration = this.manager.getProgress().duration;
+
+    for (const chapter of this.chapters) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "annotation-chip whitespace-nowrap shrink-0";
+      chip.title =
+        `${chapter.title} — ${formatTime(chapter.startTime)}` +
+        (duration > 0 ? ` (chapter ${chapter.index + 1} of ${this.chapters.length})` : "");
+
+      const label = document.createElement("span");
+      label.className = "text-neutral-500 font-mono";
+      label.textContent = String(chapter.index + 1).padStart(2, "0");
+
+      const title = document.createElement("span");
+      title.textContent = chapter.title;
+
+      chip.append(label, title);
+      // Seeking goes through the manager so the anti-skip ceiling still rules.
+      chip.addEventListener("click", () => {
+        this.manager.seekTo(chapter.startTime);
+        this.annotations.resetCrossingCursor(chapter.startTime);
+        this.hideNoteTransport();
+      });
+
+      bar.append(chip);
+    }
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Local subtitles (roadmap 2.5)                                    */
+  /* ---------------------------------------------------------------- */
+
+  private bindSubtitles(): void {
+    const btn = document.getElementById("subtitle-btn");
+    const input = document.getElementById("subtitle-input") as HTMLInputElement | null;
+
+    const onButton = (): void => {
+      // No track loaded yet → pick a file. Track loaded → toggle visibility.
+      if (!this.subtitles.getCurrent()) {
+        input?.click();
+        return;
+      }
+      const enabled = !this.subtitles.isToggledOn(this.video);
+      this.subtitles.setEnabled(this.video, enabled);
+      this.syncSubtitleButton();
+      this.announce(enabled ? "Subtitles on." : "Subtitles off.");
+    };
+
+    const onChange = async (): Promise<void> => {
+      const file = input?.files?.[0];
+      if (input) input.value = "";
+      if (!file) return;
+
+      try {
+        const info = await this.subtitles.load(file);
+        this.subtitles.attachTo(this.video, info);
+        // `textTracks[0]` appears asynchronously in some engines; poll briefly.
+        this.enableTrackWhenReady();
+        this.syncSubtitleButton();
+        this.announce(`${info.cueCount} subtitle cues loaded from ${info.fileName}.`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not read that subtitle file.";
+        this.announce(message);
+        console.warn("[ui] subtitle load failed", error);
+      }
+    };
+
+    const offTrack = this.subtitles.onTrackChange(() => this.syncSubtitleButton());
+
+    btn?.addEventListener("click", onButton);
+    input?.addEventListener("change", () => void onChange());
+    this.cleanups.push(
+      offTrack,
+      () => btn?.removeEventListener("click", onButton),
+      () => input?.removeEventListener("change", () => void onChange()),
+      () => this.subtitles.dispose(),
+    );
+  }
+
+  /** Some engines populate `textTracks` a tick after the element is attached. */
+  private enableTrackWhenReady(attempt = 0): void {
+    const tracks = this.video.textTracks;
+    if (tracks.length > 0) {
+      tracks[0]!.mode = "showing";
+      this.syncSubtitleButton();
+      return;
+    }
+    if (attempt > 20) return;
+    window.setTimeout(() => this.enableTrackWhenReady(attempt + 1), 50);
+  }
+
+  private syncSubtitleButton(): void {
+    const btn = document.getElementById("subtitle-btn");
+    if (!btn) return;
+
+    const info = this.subtitles.getCurrent();
+    const on = info !== null && this.subtitles.isToggledOn(this.video);
+
+    btn.setAttribute("aria-pressed", String(on));
+    btn.setAttribute(
+      "aria-label",
+      info
+        ? `Subtitles: ${info.fileName} (${on ? "on" : "off"}). Click to toggle.`
+        : "Load subtitles (.vtt or .srt)",
+    );
+    btn.title = info
+      ? `${info.fileName} — ${info.cueCount} cues (${on ? "on" : "off"})`
+      : "Load subtitles (.vtt or .srt)";
+    btn.classList.toggle("text-accent-purple-light", on);
+    btn.classList.toggle("border", on);
+    btn.classList.toggle("border-accent-purple/50", on);
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Playlist queue (roadmap 2.3)                                     */
+  /* ---------------------------------------------------------------- */
+
+  private bindPlaylist(): void {
+    const nextBtn = document.getElementById("next-in-queue-btn");
+    const clearBtn = document.getElementById("playlist-clear-btn");
+
+    const onNext = (): void => void this.advanceQueue();
+    const onClear = (): void => {
+      this.playlist.clear();
+      this.renderPlaylist();
+      this.announce("Queue cleared.");
+    };
+
+    nextBtn?.addEventListener("click", onNext);
+    clearBtn?.addEventListener("click", onClear);
+    this.cleanups.push(
+      () => nextBtn?.removeEventListener("click", onNext),
+      () => clearBtn?.removeEventListener("click", onClear),
+    );
+  }
+
+  /** Move to the next queued file and start a fresh session for it. */
+  private async advanceQueue(): Promise<void> {
+    const next = this.playlist.advance();
+    if (!next) {
+      this.announce("Nothing left in the queue.");
+      return;
+    }
+    this.renderPlaylist();
+    await this.handleFile(next.file);
+    if (this.manager.getState() === "ready") await this.manager.start();
+  }
+
+  private renderPlaylist(): void {
+    const wrap = document.getElementById("playlist-wrap");
+    const list = document.getElementById("playlist-list");
+    if (!wrap || !list) return;
+
+    const items = this.playlist.all();
+    list.replaceChildren();
+
+    if (items.length < 2) {
+      wrap.classList.add("hidden");
+    } else {
+      wrap.classList.remove("hidden");
+      const activeIndex = this.playlist.activeIndex();
+
+      items.forEach((item, index) => {
+        const li = document.createElement("li");
+        const row = document.createElement("div");
+        row.className =
+          "flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-left " +
+          (index === activeIndex
+            ? "bg-accent-purple/15 border-accent-purple/50"
+            : "bg-surface/70 border-border");
+
+        const num = document.createElement("span");
+        num.className = "font-mono text-[10px] text-neutral-500 w-4 shrink-0";
+        num.textContent = String(index + 1);
+
+        const name = document.createElement("span");
+        name.className = "flex-1 min-w-0 truncate text-xs text-neutral-200";
+        name.textContent = item.file.name;
+
+        const size = document.createElement("span");
+        size.className = "font-mono text-[10px] text-neutral-500 shrink-0";
+        size.textContent = formatFileSize(item.file.size);
+
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "text-neutral-500 hover:text-red-400 text-[10px] shrink-0 focus-ring rounded px-0.5";
+        remove.textContent = "✕";
+        remove.setAttribute("aria-label", `Remove ${item.file.name} from the queue`);
+        remove.addEventListener("click", () => {
+          this.playlist.remove(item.id);
+          this.renderPlaylist();
+        });
+
+        row.append(num, name, size, remove);
+
+        if (index !== activeIndex) {
+          // Clicking a later item jumps the queue there.
+          row.classList.add("cursor-pointer", "hover:border-neutral-500", "transition-colors");
+          row.addEventListener("click", (event) => {
+            if (event.target === remove) return;
+            this.playlist.select(item.id);
+            this.renderPlaylist();
+          });
+        }
+
+        li.append(row);
+        list.append(li);
+      });
+    }
+
+    this.syncQueueBadge();
+  }
+
+  private syncQueueBadge(): void {
+    const badge = document.getElementById("queue-badge");
+    const nextBtn = document.getElementById("next-in-queue-btn");
+    const total = this.playlist.size();
+    const index = this.playlist.activeIndex();
+
+    if (badge) {
+      const show = total > 1;
+      badge.classList.toggle("hidden", !show);
+      if (show) badge.textContent = `${index + 1} / ${total}`;
+    }
+
+    if (nextBtn) {
+      const show = this.playlist.hasNext();
+      nextBtn.classList.toggle("hidden", !show);
+      nextBtn.classList.toggle("flex", show);
+    }
+  }
+
+  /* ---------------------------------------------------------------- */
   /* Dialogs: shortcuts, menu and about (1.4)                         */
   /* ---------------------------------------------------------------- */
 
@@ -1034,7 +1460,11 @@ export class WorkspaceUI {
           (openDialog as HTMLDialogElement).close();
           return;
         }
-        if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+        if (document.fullscreenElement) {
+          void document.exitFullscreen().catch(() => undefined);
+          return;
+        }
+        if (this.focusMode) this.toggleFocusMode(false);
       }
       if (event.key === "?" && !this.isTypingTarget(event.target)) {
         event.preventDefault();
@@ -1051,6 +1481,7 @@ export class WorkspaceUI {
   private openMenu: () => void = () => undefined;
 
   private populateAbout(): void {
+    void this.renderAnalytics();
     const store = this.history.store;
     const stateNode = document.getElementById("about-storage-state");
     if (stateNode) {
@@ -1060,6 +1491,34 @@ export class WorkspaceUI {
     }
     const engineNode = document.getElementById("about-engine");
     if (engineNode) engineNode.textContent = this.adapter.id;
+  }
+
+  /** Local watching statistics drawn from the history store (roadmap 2.2). */
+  private async renderAnalytics(): Promise<void> {
+    if (!this.analytics) return;
+    const summary = await this.analytics.getSummary();
+
+    const set = (id: string, value: string): void => {
+      const node = document.getElementById(id);
+      if (node) node.textContent = value;
+    };
+
+    set("analytics-files", String(summary.fileCount));
+    set("analytics-completed", String(summary.completedCount));
+    set("analytics-watched", formatStretch(summary.totalWatchedSeconds));
+    set("analytics-rate", summary.fileCount === 0 ? "—" : `${Math.round(summary.completionRate * 100)}%`);
+
+    const hint = document.getElementById("analytics-hint");
+    if (hint) {
+      if (summary.fileCount === 0) {
+        hint.textContent = "Nothing recorded yet. Statistics appear after you watch something.";
+      } else if (summary.almostDone) {
+        hint.textContent = `Almost done: ${summary.almostDone.fileName}.`;
+      } else {
+        const pct = Math.round(summary.averageCoverage * 100);
+        hint.textContent = `You watch about ${pct}% of each file on average.`;
+      }
+    }
   }
 
   /** Lightweight menu: no new markup, built on demand and anchored top-left. */
@@ -1134,6 +1593,42 @@ export class WorkspaceUI {
   }
 
   /* ---------------------------------------------------------------- */
+  /* Focus mode (roadmap 2.4)                                         */
+  /* ---------------------------------------------------------------- */
+
+  private toggleFocusMode(force?: boolean): void {
+    const state = this.manager.getState();
+    if (state !== "live" && state !== "paused") {
+      this.announce("Focus mode is available during a session.");
+      return;
+    }
+
+    const next = force ?? !document.body.classList.contains("focus-mode");
+    document.body.classList.toggle("focus-mode", next);
+    this.focusMode = next;
+
+    const btn = document.getElementById("focus-btn");
+    if (btn) btn.setAttribute("aria-pressed", String(next));
+
+    if (next) {
+      this.renderFocusClock();
+      this.focusClockTimer = window.setInterval(() => this.renderFocusClock(), 500);
+      this.announce("Focus mode on. Press Z or Escape to exit.");
+    } else if (this.focusClockTimer !== null) {
+      window.clearInterval(this.focusClockTimer);
+      this.focusClockTimer = null;
+      this.announce("Focus mode off.");
+    }
+  }
+
+  private renderFocusClock(): void {
+    const node = document.getElementById("focus-time");
+    if (!node) return;
+    const { currentTime, duration } = this.manager.getProgress();
+    node.textContent = `${formatTime(currentTime)} / ${formatTime(duration)}`;
+  }
+
+  /* ---------------------------------------------------------------- */
   /* Picture in picture (1.5)                                         */
   /* ---------------------------------------------------------------- */
 
@@ -1184,6 +1679,11 @@ export class WorkspaceUI {
 
   dispose(): void {
     for (const off of this.cleanups.splice(0)) off();
+    if (this.focusClockTimer !== null) {
+      window.clearInterval(this.focusClockTimer);
+      this.focusClockTimer = null;
+    }
+    document.body.classList.remove("focus-mode");
   }
 }
 
