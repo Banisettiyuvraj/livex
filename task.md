@@ -314,3 +314,26 @@ the app.
 **Core principle:** First make local playback work inside the new UI.
 Then add the simulated live experience. Implement anti-skip last, after
 the playback foundation is stable.
+
+------------------------------------------------------------------------
+
+## Phase 10 --- Playback Upgrade (TypeScript + compatibility)
+
+Implemented in v1.1. See `docs/UPGRADE-AUDIT.md`, `docs/COMPATIBILITY.md`,
+`docs/FEASIBILITY-WASM.md`.
+
+-   [x] Add TypeScript + Vite without changing the Stitch UI or markup.
+-   [x] Move session logic into a typed `SessionManager` state machine.
+-   [x] Isolate the player behind a `PlaybackAdapter` interface.
+-   [x] Implement `BrowserVideoAdapter` (native HTML5) as the baseline engine.
+-   [x] Detect container from magic bytes instead of trusting the extension.
+-   [x] Identify video/audio codecs for MP4/MOV, MKV/WebM (and hints for AVI).
+-   [x] Reject known-unplayable combinations before loading, with a reason.
+-   [x] Map `MediaError` codes to normalized, user-facing messages.
+-   [x] Keep one `<video>` instance; revoke object URLs on replace/dispose.
+-   [x] Verify every state, anti-skip, the 1x lock, completion and privacy in a
+        real browser (37 automated checks).
+-   [x] Document the measured compatibility matrix.
+-   [x] Evaluate FFmpeg.wasm / VLC wasm and record a no-go decision.
+-   [ ] Manual checks on Safari / Firefox / real HEVC hardware
+        (see `docs/COMPATIBILITY.md`).
