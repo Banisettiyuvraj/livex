@@ -153,3 +153,49 @@
     border-width: 0;
   }
 }
+
+/* ==================================================================
+ * Part 1 features: dialogs, annotation chips, note transport
+ * ================================================================== */
+@layer components {
+  .livex-dialog {
+    @apply bg-surface text-neutral-200 border border-border rounded-xl shadow-2xl p-5 w-[min(28rem,calc(100vw-2rem))] focus:outline-none;
+  }
+  .livex-dialog::backdrop {
+    background-color: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(2px);
+  }
+
+  /* Bookmark / note chips shown under the progress bar */
+  .annotation-chip {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-mono
+           bg-canvas border-border text-neutral-300 hover:border-neutral-500 transition-colors focus-ring;
+  }
+  .annotation-chip[data-kind="note"] {
+    @apply border-accent-purple/40 text-accent-purple-light;
+  }
+
+  /* A small tick on the progress rail for each annotation */
+  .progress-marker {
+    @apply absolute top-1/2 -translate-y-1/2 w-[3px] h-2 rounded-full;
+  }
+
+  /* Continue-where-you-left-off row */
+  .recent-item {
+    @apply w-full flex items-center gap-2 px-2.5 py-2 rounded-lg bg-surface/70 border border-border
+           hover:border-neutral-500 hover:bg-surface-hover transition-colors text-left focus-ring;
+  }
+
+  /* Menu popover anchored under the menu button */
+  .menu-item {
+    @apply w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-xs text-neutral-300
+           hover:bg-surface-hover hover:text-white transition-colors text-left focus-ring;
+  }
+}
+
+@layer utilities {
+  /* A dialog-open dialog should not let the page behind scroll. */
+  body:has(dialog[open]) {
+    overflow: hidden;
+  }
+}

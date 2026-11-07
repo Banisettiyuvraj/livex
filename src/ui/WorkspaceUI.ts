@@ -14,6 +14,9 @@ import type { SessionManager } from "../session/SessionManager";
 import type { SessionProgress } from "../session/SessionState";
 import type { PlaybackAdapter } from "../playback/PlaybackAdapter";
 import type { LocalFileManager } from "../files/LocalFileManager";
+import type { SessionHistoryService } from "../session/SessionHistoryService";
+import type { AnnotationService } from "../session/AnnotationService";
+import type { Annotation, HistoryEntry } from "../files/LocalMetadataStore";
 import { PlaybackError } from "../playback/PlaybackErrors";
 import { formatFileSize, formatTime } from "./format";
 
@@ -30,7 +33,14 @@ export interface WorkspaceUIOptions {
   /** Element that receives the `<video>` during an active session. */
   activeVideoSlot: HTMLElement;
   readyVideoSlot: HTMLElement;
+  history: SessionHistoryService;
+  annotations: AnnotationService;
 }
+
+/** How the elapsed/total readout is formatted (feature 1.6). */
+type TimeDisplayMode = "elapsed" | "remaining" | "percent";
+const TIME_MODES: TimeDisplayMode[] = ["elapsed", "remaining", "percent"];
+const TIME_MODE_STORAGE_KEY = "livex.timeDisplayMode";
 
 export class WorkspaceUI {
   private readonly manager: SessionManager;
@@ -44,10 +54,17 @@ export class WorkspaceUI {
   private readonly cleanups: Array<() => void> = [];
   private lastFileSummary = "";
 
+  private readonly history: SessionHistoryService;
+  private readonly annotations: AnnotationService;
+  private timeMode: TimeDisplayMode = "elapsed";
+  private noteComposerOpen = false;
+
   constructor(options: WorkspaceUIOptions) {
     this.manager = options.manager;
     this.adapter = options.adapter;
     this.files = options.files;
+    this.history = options.history;
+    this.annotations = options.annotations;
     this.activeVideoSlot = options.activeVideoSlot;
     this.readyVideoSlot = options.readyVideoSlot;
 
@@ -73,11 +90,16 @@ export class WorkspaceUI {
     this.bindPlaybackControls();
     this.bindKeyboard();
     this.bindLifecycle();
+    this.bindHistory();
+    this.bindAnnotations();
+    this.bindDialogs();
 
     this.applyPlatformShortcuts();
     this.disableUnimplementedToolbarButtons();
+    this.restoreTimeMode();
 
     this.render("idle");
+    void this.renderRecent();
   }
 
   /**
@@ -120,9 +142,12 @@ export class WorkspaceUI {
       this.manager.onSessionChange(({ state, previous }) => {
         this.render(state);
         this.announceState(state, previous);
+        this.onSessionStateForPersistence(state);
       }),
       this.manager.onProgress((progress) => {
         this.renderProgress(progress);
+        // Throttled internally, so this is safe on every tick.
+        this.history.recordProgress(progress.currentTime, progress.furthestTime);
       }),
       this.manager.onError((details) => {
         this.showError(details);
@@ -177,6 +202,20 @@ export class WorkspaceUI {
     this.syncStatusBadges(state);
     this.syncSessionButtons(state);
     this.syncFocus(state);
+  }
+
+  /** Flush watch position to history on meaningful transitions (feature 1.1). */
+  private onSessionStateForPersistence(state: SessionState): void {
+    const progress = this.manager.getProgress();
+
+    if (state === "paused") {
+      this.history.recordProgress(progress.currentTime, progress.furthestTime, true);
+    } else if (state === "completed") {
+      this.history.recordCompletion(progress.duration);
+      void this.renderRecent();
+    } else if (state === "idle") {
+      void this.renderRecent();
+    }
   }
 
   /**
@@ -257,7 +296,67 @@ export class WorkspaceUI {
 
     const pct = Math.max(0, Math.min(100, progress.fraction * 100));
     fill.style.width = `${pct}%`;
-    display.textContent = `${formatTime(progress.currentTime)} / ${formatTime(progress.duration)}`;
+    display.textContent = this.formatTimeDisplay(progress);
+
+    this.annotations.checkCrossings(
+      progress.currentTime,
+      this.manager.getState() === "live",
+    );
+    this.renderPlayheadMarker(progress);
+  }
+
+  /** Format the readout according to the current mode (feature 1.6). */
+  private formatTimeDisplay(progress: SessionProgress): string {
+    const { currentTime, duration } = progress;
+
+    switch (this.timeMode) {
+      case "remaining": {
+        const left = Math.max(0, duration - currentTime);
+        return duration > 0 ? `−${formatTime(left)}` : `−${formatTime(0)}`;
+      }
+      case "percent":
+        return duration > 0 ? `${Math.floor(progress.fraction * 100)}%` : "0%";
+      case "elapsed":
+      default:
+        return `${formatTime(currentTime)} / ${formatTime(duration)}`;
+    }
+  }
+
+  private restoreTimeMode(): void {
+    let stored: string | null = null;
+    try {
+      stored = window.localStorage.getItem(TIME_MODE_STORAGE_KEY);
+    } catch {
+      // Storage may be blocked; fall back to the default mode.
+    }
+    if (stored && (TIME_MODES as string[]).includes(stored)) {
+      this.timeMode = stored as TimeDisplayMode;
+    }
+    this.syncTimeModeAffordance();
+  }
+
+  private cycleTimeMode(): void {
+    const index = TIME_MODES.indexOf(this.timeMode);
+    this.timeMode = TIME_MODES[(index + 1) % TIME_MODES.length] ?? "elapsed";
+    try {
+      window.localStorage.setItem(TIME_MODE_STORAGE_KEY, this.timeMode);
+    } catch {
+      // Non-fatal: the choice just will not persist.
+    }
+    this.syncTimeModeAffordance();
+    this.renderProgress(this.manager.getProgress());
+  }
+
+  private syncTimeModeAffordance(): void {
+    const display = document.getElementById("time-display");
+    if (!display) return;
+    const label = this.timeMode === "elapsed"
+      ? "Showing elapsed time. Click for remaining time."
+      : this.timeMode === "remaining"
+        ? "Showing remaining time. Click for percentage."
+        : "Showing percentage. Click for elapsed time.";
+    display.title = label;
+    display.setAttribute("aria-label", label);
   }
 
   private showError(details: PlaybackErrorDetails): void {
@@ -352,7 +451,14 @@ export class WorkspaceUI {
 
       this.lastFileSummary = "";
       this.files.setCurrentFile(file);
-      await this.manager.loadFile(file);
+      const metadata = await this.manager.loadFile(file);
+
+      // Record the open for "continue where you left off" and load any notes
+      // this file already has (metadata only — never the video).
+      await this.history.trackOpen(metadata);
+      await this.annotations.setMedia(metadata);
+      this.annotations.resetCrossingCursor(0);
+      this.hideNoteTransport();
       // Real decode failures arrive through the adapter `error` event.
     } catch (error) {
       this.files.setCurrentFile(null);
@@ -418,6 +524,23 @@ export class WorkspaceUI {
     const volumeIcon = el("volume-icon");
     const fullscreenBtn = el("fullscreen-btn");
     const fullscreenIcon = el("fullscreen-icon");
+
+    // Time display cycles elapsed → remaining → percentage (feature 1.6).
+    const timeDisplay = document.getElementById("time-display");
+    const onTimeMode = (): void => this.cycleTimeMode();
+    timeDisplay?.addEventListener("click", onTimeMode);
+    this.cleanups.push(() => timeDisplay?.removeEventListener("click", onTimeMode));
+
+    // Picture in picture (feature 1.5).
+    const pipBtn = document.getElementById("pip-btn");
+    const onPip = (): void => void this.togglePictureInPicture();
+    pipBtn?.addEventListener("click", onPip);
+    this.cleanups.push(() => pipBtn?.removeEventListener("click", onPip));
+    if (pipBtn && !document.pictureInPictureEnabled) {
+      pipBtn.classList.add("opacity-40");
+      pipBtn.setAttribute("title", "Picture in picture is not supported in this browser");
+      pipBtn.setAttribute("aria-disabled", "true");
+    }
 
     const renderVolume = (volume: number, muted: boolean): void => {
       volumeIcon.textContent = muted || volume === 0 ? "🔇" : volume < 0.5 ? "🔉" : "🔊";
@@ -497,11 +620,12 @@ export class WorkspaceUI {
 
   private bindKeyboard(): void {
     const handler = (event: KeyboardEvent): void => {
-      const target = event.target as HTMLElement | null;
-      const tag = target?.tagName;
-      if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || tag === "BUTTON") return;
+      // Never steal keys from a text field, dialog or focused button.
+      if (this.isTypingTarget(event.target)) return;
+      if (event.target instanceof HTMLButtonElement && event.code === "Space") return;
 
       const state = this.manager.getState();
+      const active = state === "live" || state === "paused";
 
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "o") {
         event.preventDefault();
@@ -509,7 +633,44 @@ export class WorkspaceUI {
         return;
       }
 
-      if (event.code === "Space") {
+      // Arrow seeking and YouTube-style J/K/L (feature 1.3).
+      const nudge = (delta: number): void => {
+        if (!active) return;
+        const target = this.manager.getSnapshot().progress.currentTime + delta;
+        const ceiling = this.manager.getSnapshot().progress.furthestTime;
+        this.manager.seekTo(Math.min(Math.max(0, target), ceiling));
+        this.annotations.resetCrossingCursor(this.manager.getProgress().currentTime);
+        this.hideNoteTransport();
+      };
+
+      switch (event.key) {
+        case "ArrowRight":
+          if (!active) return;
+          event.preventDefault();
+          nudge(event.shiftKey ? 30 : 5);
+          return;
+        case "ArrowLeft":
+          if (!active) return;
+          event.preventDefault();
+          nudge(event.shiftKey ? -30 : -5);
+          return;
+        case "l":
+        case "L":
+          if (!active) return;
+          event.preventDefault();
+          nudge(10);
+          return;
+        case "j":
+        case "J":
+          if (!active) return;
+          event.preventDefault();
+          nudge(-10);
+          return;
+        default:
+          break;
+      }
+
+      if (event.code === "Space" || event.key.toLowerCase() === "k") {
         event.preventDefault();
         if (state === "live") this.manager.pause();
         else if (state === "paused") void this.manager.resume();
@@ -527,6 +688,23 @@ export class WorkspaceUI {
         return;
       }
 
+      if (event.key.toLowerCase() === "p") {
+        void this.togglePictureInPicture();
+        return;
+      }
+
+      if (event.key.toLowerCase() === "b" && this.annotations.hasMedia()) {
+        event.preventDefault();
+        void this.annotations.add("bookmark", this.manager.getProgress().currentTime);
+        return;
+      }
+
+      if (event.key.toLowerCase() === "n" && this.annotations.hasMedia()) {
+        event.preventDefault();
+        this.openNoteComposer();
+        return;
+      }
+
       if (event.key === "Enter" && state === "ready") {
         void this.manager.start();
       }
@@ -534,6 +712,461 @@ export class WorkspaceUI {
 
     document.addEventListener("keydown", handler);
     this.cleanups.push(() => document.removeEventListener("keydown", handler));
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Annotations: bookmarks + timestamped notes (1.2)                 */
+  /* ---------------------------------------------------------------- */
+
+  private bindAnnotations(): void {
+    const bookmarkBtn = document.getElementById("bookmark-btn");
+    const noteBtn = document.getElementById("note-btn");
+    const closeNote = document.getElementById("note-transport-close");
+
+    const onBookmark = (): void => {
+      if (!this.annotations.hasMedia()) return;
+      void this.annotations.add("bookmark", this.manager.getProgress().currentTime);
+    };
+
+    const onNote = (): void => {
+      if (!this.annotations.hasMedia()) return;
+      this.openNoteComposer();
+    };
+
+    bookmarkBtn?.addEventListener("click", onBookmark);
+    noteBtn?.addEventListener("click", onNote);
+    closeNote?.addEventListener("click", () => this.hideNoteTransport());
+
+    this.cleanups.push(
+      () => bookmarkBtn?.removeEventListener("click", onBookmark),
+      () => noteBtn?.removeEventListener("click", onNote),
+      this.annotations.onAnnotationsChange((annotations) => {
+        this.renderAnnotations(annotations);
+      }),
+      this.annotations.onNoteCrossed((annotation) => {
+        this.showNoteTransport(annotation);
+      }),
+    );
+  }
+
+  /** Chips under the progress bar plus ticks on the rail. */
+  private renderAnnotations(annotations: Annotation[]): void {
+    const bar = document.getElementById("annotation-bar");
+    const markers = document.getElementById("progress-markers");
+    if (!bar || !markers) return;
+
+    bar.replaceChildren();
+    markers.replaceChildren();
+
+    const duration = this.manager.getProgress().duration;
+
+    for (const annotation of annotations) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "annotation-chip";
+      chip.dataset.kind = annotation.kind;
+      chip.title =
+        annotation.kind === "bookmark"
+          ? `Bookmark at ${formatTime(annotation.time)} — click to jump back`
+          : `${formatTime(annotation.time)} — ${annotation.text}\nClick to jump back`;
+
+      const timeLabel = document.createElement("span");
+      timeLabel.textContent =
+        annotation.kind === "bookmark" ? `★ ${formatTime(annotation.time)}` : `✎ ${formatTime(annotation.time)}`;
+      chip.append(timeLabel);
+
+      chip.addEventListener("click", () => {
+        // Bookmark clicks are rewind-or-equal jumps, so anti-skip allows them.
+        this.manager.seekTo(annotation.time);
+        this.annotations.resetCrossingCursor(annotation.time);
+        this.hideNoteTransport();
+      });
+
+      const remove = document.createElement("span");
+      remove.setAttribute("role", "button");
+      remove.tabIndex = -1;
+      remove.className = "ml-0.5 text-neutral-500 hover:text-red-400";
+      remove.textContent = "✕";
+      remove.title = "Delete";
+      remove.addEventListener("click", (event) => {
+        event.stopPropagation();
+        void this.annotations.remove(annotation.id);
+      });
+      chip.append(remove);
+
+      bar.append(chip);
+
+      if (duration > 0) {
+        const marker = document.createElement("div");
+        marker.className = "progress-marker";
+        marker.style.left = `${Math.min(100, (annotation.time / duration) * 100)}%`;
+        marker.style.backgroundColor =
+          annotation.kind === "bookmark" ? "#a5a1f8" : "#6965db";
+        markers.append(marker);
+      }
+    }
+
+    // Hint when the file is loaded but has no annotations yet.
+    const enabled = this.annotations.hasMedia();
+    document.getElementById("bookmark-btn")?.classList.toggle("opacity-40", !enabled);
+    document.getElementById("note-btn")?.classList.toggle("opacity-40", !enabled);
+  }
+
+  /** Small caret showing exactly where playback is on the rail. */
+  private renderPlayheadMarker(progress: SessionProgress): void {
+    const markers = document.getElementById("progress-markers");
+    if (!markers) return;
+
+    let playhead = markers.querySelector<HTMLElement>("[data-playhead]");
+    if (!playhead) {
+      playhead = document.createElement("div");
+      playhead.dataset.playhead = "1";
+      playhead.className = "progress-marker";
+      playhead.style.backgroundColor = "#ffffff";
+      playhead.style.height = "0.6rem";
+      markers.append(playhead);
+    }
+    playhead.style.left = `${Math.max(0, Math.min(100, progress.fraction * 100))}%`;
+  }
+
+  /** Inline composer for a timestamped note at the current position. */
+  private openNoteComposer(): void {
+    if (this.noteComposerOpen) return;
+    this.noteComposerOpen = true;
+
+    const time = this.manager.getProgress().currentTime;
+    const bar = document.getElementById("annotation-bar");
+    if (!bar) return;
+
+    const wasPlaying = this.manager.getState() === "live";
+    if (wasPlaying) this.manager.pause();
+
+    const wrap = document.createElement("form");
+    wrap.className = "flex items-center gap-1.5 w-full";
+    wrap.id = "note-composer";
+
+    const stamp = document.createElement("span");
+    stamp.className = "font-mono text-[10px] text-accent-purple-light shrink-0";
+    stamp.textContent = formatTime(time);
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.maxLength = 500;
+    input.placeholder = "Note at " + formatTime(time) + "…";
+    input.className =
+      "flex-1 min-w-0 bg-canvas border border-border rounded-md px-2 py-1 text-xs text-neutral-200 placeholder:text-neutral-600 focus:outline-none focus:border-accent-purple/60";
+    input.setAttribute("aria-label", `Note at ${formatTime(time)}`);
+
+    const save = document.createElement("button");
+    save.type = "submit";
+    save.className =
+      "px-2 py-1 rounded-md bg-accent-purple hover:bg-[#7874e4] text-white text-[11px] font-medium shrink-0 focus-ring";
+    save.textContent = "Save";
+
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "px-1.5 py-1 text-[11px] text-neutral-400 hover:text-white shrink-0 focus-ring rounded";
+    cancel.textContent = "Cancel";
+
+    const close = (): void => {
+      this.noteComposerOpen = false;
+      wrap.remove();
+      if (wasPlaying && this.manager.getState() === "paused") void this.manager.resume();
+    };
+
+    wrap.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const text = input.value.trim();
+      if (text) void this.annotations.add("note", time, text);
+      this.noteComposerOpen = false;
+      wrap.remove();
+      if (wasPlaying && this.manager.getState() === "paused") void this.manager.resume();
+    });
+    cancel.addEventListener("click", close);
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        close();
+      }
+    });
+
+    wrap.append(stamp, input, save, cancel);
+    bar.append(wrap);
+    input.focus();
+  }
+
+  private showNoteTransport(annotation: Annotation): void {
+    const transport = document.getElementById("note-transport");
+    const timeNode = document.getElementById("note-transport-time");
+    const textNode = document.getElementById("note-transport-text");
+    if (!transport || !timeNode || !textNode) return;
+
+    timeNode.textContent = formatTime(annotation.time);
+    textNode.textContent = annotation.text;
+    transport.classList.remove("hidden");
+  }
+
+  private hideNoteTransport(): void {
+    document.getElementById("note-transport")?.classList.add("hidden");
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* History: continue where you left off (1.1)                       */
+  /* ---------------------------------------------------------------- */
+
+  private bindHistory(): void {
+    const clearBtn = document.getElementById("clear-history-btn");
+    const onClear = async (): Promise<void> => {
+      await this.history.store.clearHistory();
+      await this.renderRecent();
+      this.announce("Recent files cleared.");
+    };
+    clearBtn?.addEventListener("click", () => void onClear());
+    this.cleanups.push(() => clearBtn?.removeEventListener("click", () => void onClear()));
+  }
+
+  /** Renders the "Continue where you left off" list on the idle screen. */
+  private async renderRecent(): Promise<void> {
+    const wrap = document.getElementById("recent-wrap");
+    const list = document.getElementById("recent-list");
+    if (!wrap || !list) return;
+
+    const entries = await this.history.listRecent(4);
+    const current = this.history.getEntry();
+    const visible = entries.filter((entry) => entry.key !== current?.key).slice(0, 3);
+
+    list.replaceChildren();
+    if (visible.length === 0) {
+      wrap.classList.add("hidden");
+      return;
+    }
+    wrap.classList.remove("hidden");
+
+    for (const entry of visible) {
+      list.append(this.buildRecentRow(entry));
+    }
+  }
+
+  private buildRecentRow(entry: HistoryEntry): HTMLElement {
+    const li = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "recent-item";
+    button.title = entry.completed
+      ? `${entry.fileName} — completed. Select the same file to replay.`
+      : `${entry.fileName} — resume at ${formatTime(entry.lastTime)}`;
+
+    const icon = document.createElement("span");
+    icon.className = "text-[11px] shrink-0";
+    icon.textContent = entry.completed ? "✓" : "▸";
+    icon.setAttribute("aria-hidden", "true");
+
+    const name = document.createElement("span");
+    name.className = "flex-1 min-w-0 truncate text-xs text-neutral-200";
+    name.textContent = entry.fileName;
+
+    const meta = document.createElement("span");
+    meta.className = "font-mono text-[10px] text-neutral-500 shrink-0";
+    const pct = entry.duration > 0 ? Math.floor((entry.furthestTime / entry.duration) * 100) : 0;
+    meta.textContent = entry.completed ? "done" : `${Math.min(100, pct)}%`;
+
+    button.append(icon, name, meta);
+    // A remembered file cannot be re-opened by reference (the browser does not
+    // expose past File objects), so this is an affordance to pick it again.
+    button.addEventListener("click", () => {
+      el<HTMLInputElement>("video-input").click();
+    });
+
+    li.append(button);
+    return li;
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Dialogs: shortcuts, menu and about (1.4)                         */
+  /* ---------------------------------------------------------------- */
+
+  private bindDialogs(): void {
+    const shortcuts = document.getElementById("shortcuts-dialog") as HTMLDialogElement | null;
+    const about = document.getElementById("about-dialog") as HTMLDialogElement | null;
+
+    for (const dialog of [shortcuts, about]) {
+      if (!dialog) continue;
+      for (const closeBtn of dialog.querySelectorAll(".dialog-close")) {
+        closeBtn.addEventListener("click", () => dialog.close());
+      }
+      // Click on the backdrop (outside the panel) closes.
+      dialog.addEventListener("click", (event) => {
+        if (event.target === dialog) dialog.close();
+      });
+    }
+
+    this.openShortcuts = (): void => {
+      if (!shortcuts || shortcuts.open) return;
+      shortcuts.showModal();
+    };
+    this.openAbout = (): void => {
+      if (!about) return;
+      this.populateAbout();
+      about.showModal();
+    };
+    this.openMenu = (): void => this.showMenu();
+
+    const menuBtn = document.getElementById("menu-btn");
+    if (menuBtn) {
+      const onMenu = (): void => this.openMenu();
+      menuBtn.addEventListener("click", onMenu);
+      this.cleanups.push(() => menuBtn.removeEventListener("click", onMenu));
+    }
+
+    const clearAll = document.getElementById("clear-all-data-btn");
+    const onClearAll = async (): Promise<void> => {
+      await this.history.store.clearAll();
+      await this.annotations.setMedia(null);
+      await this.renderRecent();
+      about?.close();
+    };
+    clearAll?.addEventListener("click", () => void onClearAll());
+
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        const openDialog = document.querySelector("dialog[open]");
+        if (openDialog) {
+          (openDialog as HTMLDialogElement).close();
+          return;
+        }
+        if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+      }
+      if (event.key === "?" && !this.isTypingTarget(event.target)) {
+        event.preventDefault();
+        this.openShortcuts();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    this.cleanups.push(() => document.removeEventListener("keydown", onKey));
+  }
+
+  // Assigned in bindDialogs so the keyboard handler can reach them.
+  private openShortcuts: () => void = () => undefined;
+  private openAbout: () => void = () => undefined;
+  private openMenu: () => void = () => undefined;
+
+  private populateAbout(): void {
+    const store = this.history.store;
+    const stateNode = document.getElementById("about-storage-state");
+    if (stateNode) {
+      stateNode.textContent = store.isAvailable()
+        ? "Local storage: on (metadata only)"
+        : `Local storage: unavailable — ${store.getUnavailableReason() ?? "unknown reason"}`;
+    }
+    const engineNode = document.getElementById("about-engine");
+    if (engineNode) engineNode.textContent = this.adapter.id;
+  }
+
+  /** Lightweight menu: no new markup, built on demand and anchored top-left. */
+  private showMenu(): void {
+    document.getElementById("livex-menu")?.remove();
+
+    const anchor = document.getElementById("menu-btn");
+    if (!anchor) return;
+    const rect = anchor.getBoundingClientRect();
+
+    const menu = document.createElement("div");
+    menu.id = "livex-menu";
+    menu.className =
+      "fixed z-50 w-56 p-1.5 rounded-xl bg-surface border border-border shadow-2xl flex flex-col";
+    menu.style.left = `${Math.max(8, rect.left)}px`;
+    menu.style.top = `${rect.bottom + 6}px`;
+    menu.setAttribute("role", "menu");
+
+    const items: Array<{ label: string; hint: string; run: () => void }> = [
+      {
+        label: "Open video",
+        hint: "⌘O",
+        run: () => el<HTMLInputElement>("video-input").click(),
+      },
+      { label: "Keyboard shortcuts", hint: "?", run: () => this.openShortcuts() },
+      {
+        label: `Picture in picture`,
+        hint: document.pictureInPictureEnabled ? "P" : "n/a",
+        run: () => void this.togglePictureInPicture(),
+      },
+      { label: "About LiveX", hint: "", run: () => this.openAbout() },
+    ];
+
+    for (const item of items) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "menu-item";
+      button.setAttribute("role", "menuitem");
+
+      const label = document.createElement("span");
+      label.textContent = item.label;
+      const hint = document.createElement("span");
+      hint.className = "font-mono text-[10px] text-neutral-500";
+      hint.textContent = item.hint;
+
+      button.append(label, hint);
+      button.addEventListener("click", () => {
+        menu.remove();
+        item.run();
+      });
+      menu.append(button);
+    }
+
+    document.body.append(menu);
+
+    const dismiss = (event: Event): void => {
+      if (event instanceof MouseEvent && menu.contains(event.target as Node)) return;
+      menu.remove();
+      document.removeEventListener("click", dismiss, true);
+      document.removeEventListener("keydown", onEscape, true);
+    };
+    const onEscape = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") dismiss(event);
+    };
+    // Defer so the click that opened the menu does not immediately close it.
+    setTimeout(() => {
+      document.addEventListener("click", dismiss, true);
+      document.addEventListener("keydown", onEscape, true);
+    }, 0);
+
+    menu.querySelector<HTMLButtonElement>("button")?.focus();
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Picture in picture (1.5)                                         */
+  /* ---------------------------------------------------------------- */
+
+  private async togglePictureInPicture(): Promise<void> {
+    if (!document.pictureInPictureEnabled) {
+      this.announce("Picture in picture is not available in this browser.");
+      return;
+    }
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+        return;
+      }
+      if (this.video.readyState === 0) {
+        this.announce("Load a video before opening picture in picture.");
+        return;
+      }
+      await this.video.requestPictureInPicture();
+    } catch (error) {
+      // Rejected by the browser (gesture requirements, unsupported codec path).
+      console.warn("[ui] picture in picture unavailable", error);
+      this.announce("Picture in picture could not be opened.");
+    }
+  }
+
+  private announce(message: string): void {
+    const announcer = document.getElementById("session-announcer");
+    if (announcer) announcer.textContent = message;
+  }
+
+  private isTypingTarget(target: EventTarget | null): boolean {
+    const tag = (target as HTMLElement | null)?.tagName;
+    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
   }
 
   /* ---------------------------------------------------------------- */

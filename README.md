@@ -63,6 +63,35 @@ index.html (Stitch UI markup — unchanged visuals)
 The UI never calls the engine directly, and the session layer never touches the
 DOM. Swapping engines touches `PlaybackAdapter` + one line in `main.ts`.
 
+## Features
+
+- Drag-and-drop or `Ctrl+O` local video, nothing uploaded.
+- Simulated live session with `LIVE` / `PAUSED` / `COMPLETED` states.
+- **Anti-skip** forward-seek ceiling with a 1× speed lock.
+- **Bookmarks and timestamped notes** — `B` to bookmark, `N` to write a note;
+  notes resurface as you play past them.
+- **Continue where you left off** — recent files with progress, stored locally.
+- **Keyboard-first control** — arrows, `J/K/L`, `P` for picture-in-picture.
+- **Picture in picture** and fullscreen.
+- **Three time readouts** — elapsed / remaining / percentage.
+- Real container + codec detection, so unsupported files say *why*.
+
+## Keyboard
+
+| Key | Action |
+| --- | --- |
+| `Space` / `K` | Play / pause |
+| `←` / `→` | Back 5s / forward 5s |
+| `Shift + ←` / `→` | Back 30s / forward 30s |
+| `J` / `L` | Back 10s / forward 10s |
+| `B` | Bookmark current time |
+| `N` | Note at current time |
+| `P` | Picture in picture |
+| `M` / `F` | Mute / fullscreen |
+| `Esc` | Exit fullscreen or close dialog |
+| `?` | Shortcuts panel |
+| `Ctrl/⌘ + O` | Open a video |
+
 ## Session rules
 
 - States: `idle → ready → live ⇄ paused → completed`, plus `error`.
@@ -85,6 +114,24 @@ endpoint, no storage of video, and no telemetry. The automated test asserts that
 **offline** once loaded — verified by a test that aborts every non-localhost
 request and still plays a full session.
 
+### What is saved locally
+
+Two things, both opt-in and both removable from **Menu → About LiveX → Clear
+saved data**:
+
+1. **Session history** — file name, size, duration, last position and furthest
+   position, per file. Stored in IndexedDB.
+2. **Bookmarks and notes** — timestamp plus your note text (capped at 500
+   characters), keyed to the same file fingerprint.
+
+A small `localStorage` key remembers only which time-display mode you chose.
+
+**No video, audio, frame or thumbnail data is ever written to disk.** Files are
+identified by a `name::size::duration` fingerprint, not by content; the test
+suite asserts that no persisted record contains media-shaped fields. If the
+browser blocks IndexedDB (private mode, storage pressure), both features switch
+themselves off and LiveX remains a plain player.
+
 ## Build verification
 
 ```bash
@@ -102,9 +149,15 @@ npm run dev            # in one terminal
 npm test               # in another (Playwright, Chromium)
 ```
 
-37 checks across the compatibility matrix, the session state machine, anti-skip,
-the 1× lock, completion semantics and privacy. Fixtures are generated with
-ffmpeg and live in `tests/fixtures/`.
+Two suites:
+
+- `npm test` — 37 checks: compatibility matrix, session state machine, anti-skip,
+  the 1× lock, completion semantics and privacy.
+- `npm run test:features` — 36 checks covering history, bookmarks/notes, the
+  keyboard map, dialogs, picture-in-picture and time display modes.
+- `npm run verify` — build, then verify the output over http **and** `file://`.
+
+Fixtures are generated with ffmpeg and live in `tests/fixtures/`.
 
 To run the same suite against the production bundle:
 

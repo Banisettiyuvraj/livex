@@ -24,7 +24,10 @@ So this doc does not repeat solved problems:
 
 ---
 
-## Part 1 — High-value, low-risk (do next)
+## Part 1 — High-value, low-risk ✅ SHIPPED in v1.3
+
+All six items are implemented and covered by `tests/features.mjs` (36 checks).
+See the implementation notes at the end of this section.
 
 These add real utility without touching the architecture or privacy model.
 
@@ -78,6 +81,27 @@ visible while taking notes elsewhere — very natural for this product.
 
 Show `03:12 / 22:40`, or `−19:28` remaining, or percentage. A single toggle in
 the control bar. Small change, frequent request.
+
+### Implementation notes (v1.3)
+
+| Item | Where | Notes |
+| --- | --- | --- |
+| 1.1 history | `src/files/LocalMetadataStore.ts`, `src/session/SessionHistoryService.ts` | IndexedDB, two object stores. Key = `name::size::duration`. Flushes throttled to 5s + on pause/complete. Degrades to a pure player if IndexedDB is blocked. |
+| 1.2 annotations | `src/session/AnnotationService.ts`, `WorkspaceUI.renderAnnotations` | Chips + rail ticks. `B` bookmarks, `N` opens an inline composer (auto-pauses, resumes after save). Notes surface once as a transport bar when playback crosses them going forward. |
+| 1.3 keyboard | `WorkspaceUI.bindKeyboard` | `←/→` 5s, `Shift+←/→` 30s, `J/K/L`, `Esc`, `?`. All seeking is routed through `SessionManager.seekTo`, so the anti-skip ceiling still applies. |
+| 1.4 dialogs | `#shortcuts-dialog`, `#about-dialog`, `WorkspaceUI.showMenu` | Native `<dialog>`; backdrop/Esc close. The Menu button now opens a real menu (Open, Shortcuts, PiP, About). |
+| 1.5 PiP | `WorkspaceUI.togglePictureInPicture` | Uses `document.pictureInPictureEnabled` for a graceful unsupported state; failures are caught and announced, never thrown. |
+| 1.6 time modes | `WorkspaceUI.formatTimeDisplay` / `cycleTimeMode` | Click the readout to cycle elapsed → remaining → percent. Choice persists in `localStorage` (a display preference, not media data). |
+
+**Design decisions worth keeping:**
+
+- History and notes store a **fingerprint**, not the `File`. Browsers do not expose
+  past `File` objects, so a remembered entry can only offer "pick this file again"
+  — it cannot silently resume. That limitation is shown honestly in the UI copy.
+- `localStorage` is used only for the time-format preference; all media metadata
+  lives in IndexedDB so one "Clear saved data" action can wipe it wholesale.
+- Existing toolbar buttons (pen, bookmark) were re-enabled rather than adding new
+  chrome, so the Stitch design is preserved.
 
 ---
 

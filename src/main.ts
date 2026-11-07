@@ -11,6 +11,9 @@ import { BrowserVideoAdapter } from "./playback/BrowserVideoAdapter";
 import { PlaybackCapabilityDetector } from "./playback/PlaybackCapabilities";
 import { LocalFileManager } from "./files/LocalFileManager";
 import { SessionManager } from "./session/SessionManager";
+import { SessionHistoryService } from "./session/SessionHistoryService";
+import { AnnotationService } from "./session/AnnotationService";
+import { LocalMetadataStore } from "./files/LocalMetadataStore";
 import { WorkspaceUI } from "./ui/WorkspaceUI";
 
 function boot(): void {
@@ -32,12 +35,20 @@ function boot(): void {
   const files = new LocalFileManager(detector);
   const manager = new SessionManager(adapter);
 
+  // Metadata persistence (history + notes). One store instance is shared so
+  // both features read the same IndexedDB connection.
+  const metadataStore = new LocalMetadataStore();
+  const history = new SessionHistoryService(metadataStore);
+  const annotations = new AnnotationService(metadataStore);
+
   const ui = new WorkspaceUI({
     manager,
     adapter,
     files,
     activeVideoSlot: activeSlot,
     readyVideoSlot: readySlot,
+    history,
+    annotations,
   });
 
   window.addEventListener("beforeunload", () => ui.dispose());
@@ -56,7 +67,9 @@ function boot(): void {
   // verify the production bundle). Never enabled in a normal production build.
   const testHooks = import.meta.env.DEV || import.meta.env.VITE_LIVEX_TEST_HOOKS === "1";
   if (testHooks) {
-    Object.assign(window, { __livex: { adapter, manager, files, ui, detector } });
+    Object.assign(window, {
+      __livex: { adapter, manager, files, ui, detector, history, annotations, metadataStore },
+    });
   }
 
   console.info("LiveX ready — local playback only, nothing is uploaded.");
