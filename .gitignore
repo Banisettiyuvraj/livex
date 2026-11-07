@@ -6,3 +6,4 @@ dist/
 # Test artefacts
 tests/shot-*.png
 tests/_*.mjs
+tests/build-*.png

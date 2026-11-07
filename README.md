@@ -18,9 +18,13 @@ npm run dev        # http://localhost:5173
 
 ```bash
 npm run build      # typecheck + production bundle in dist/
-npm run preview    # serve the build
+npm run preview    # serve the build → http://localhost:4173
+npm run verify     # build, then check the output over http AND file://
 npm run typecheck  # tsc --noEmit
 ```
+
+`dist/index.html` is **self-contained** — CSS and JS are inlined — so you can
+also just double-click it. It renders identically over `file://` and over http.
 
 Use **Open Video** (`⌘O` / `Ctrl+O`) or drop a file anywhere on the workspace.
 
@@ -80,6 +84,16 @@ endpoint, no storage of video, and no telemetry. The automated test asserts that
 (Inter, JetBrains Mono) are bundled and self-hosted, so LiveX works completely
 **offline** once loaded — verified by a test that aborts every non-localhost
 request and still plays a full session.
+
+## Build verification
+
+```bash
+npm run verify   # build + verify the output works over http AND file://
+```
+
+`npm run test:build` loads the built page two ways and asserts the theme,
+typography, fonts, CSS and app wiring are all present, with zero external
+requests. This guards against emitting a build that renders as an unstyled page.
 
 ## Tests
 

@@ -222,3 +222,44 @@ the 4.5:1 AA threshold for body text.
 Remaining known gaps: `prefers-reduced-motion` is not yet honoured (the
 `animate-pulse-dot` LIVE indicator pulses unconditionally), and the app has not
 been tested with a real screen reader.
+
+---
+
+## 7. Regression: unstyled build over `file://` (fixed in v1.2.1)
+
+**Symptom:** after bundling Tailwind locally, opening the built page directly
+(`double-click dist/index.html`) showed the markup with **no styling at all** —
+transparent body, no dark theme, no layout.
+
+**Cause:** two independent `file://` restrictions, not a Tailwind problem:
+
+1. Vite emitted `<link rel="stylesheet" crossorigin href="./assets/index-*.css">`.
+   The `crossorigin` attribute forces a CORS check; `file://` has origin `null`,
+   so the fetch fails and **zero CSS rules** apply. The JS module failed the same
+   way (`net::ERR_FAILED` on both assets).
+2. Even without `crossorigin`, `file://` refuses ES module graph imports, so the
+   app could never boot from disk.
+
+Both were invisible over HTTP, which is why the earlier checks passed.
+
+**Fix:** the build now emits one self-contained `dist/index.html`:
+
+- `rollupOptions.output.format: "iife"` — the inlined script is valid as a
+  *classic* script, the only kind `file://` executes;
+- `cssCodeSplit: false`, `modulePreload: false`, `inlineDynamicImports: true`;
+- `vite-plugins/inline-single-file.ts` — a `generateBundle` hook that inlines the
+  CSS into `<style>` and the JS into `<script>`, and rewrites relative `url(./…)`
+  font references to `assets/…` because the stylesheet now lives at the site root
+  instead of inside `assets/`.
+
+Result: `dist/index.html` is ~70 kB and works identically over `file://` and http.
+
+**Guard:** `tests/build-check.mjs` (`npm run test:build`) loads the built page
+both ways and asserts dark theme, toolbar styling, typography, CSS rule count,
+fonts loaded, and that "Open Video" is actually wired — plus zero external
+requests. Verified that reverting the fix produces 3 failures, so the guard is
+real and not decorative.
+
+**Note on fonts:** woff/woff2 stay as separate files under `dist/assets/`. They
+load fine over `file://` because same-origin font subresources are not subject to
+the stylesheet CORS rule. Only the stylesheet and module script had to be inlined.
