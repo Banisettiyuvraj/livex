@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+
+<html class="h-full bg-[#121212] select-none" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Live Session Simulator</title>
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS CDN -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            canvas: '#121212',
+            surface: '#202020',
+            'surface-hover': '#2c2c2c',
+            'surface-active': '#363636',
+            border: '#2e2e2e',
+            'border-subtle': '#242424',
+            'muted-txt': '#8e8e93',
+            'accent-purple': '#6965db',
+            'accent-purple-light': '#a5a1f8',
+          }
+        }
+      }
+    }
+  </script>
+<!-- BEGIN: Custom Styles -->
+<style data-purpose="canvas-background">
+    /* Subtle infinite dot grid resembling Excalidraw's canvas */
+    .dot-grid-canvas {
+      background-color: #121212;
+      background-image: radial-gradient(rgba(255, 255, 255, 0.12) 1px, transparent 1px);
+      background-size: 24px 24px;
+      background-position: 0 0;
+    }
+  </style>
+<style data-purpose="ui-interactions">
+    /* Subtle transitions and tactile button states */
+    .tool-btn {
+      transition: all 0.15s ease-in-out;
+    }
+    .tool-btn:hover {
+      background-color: #2c2c2c;
+      color: #ffffff;
+    }
+    .tool-btn:active {
+      transform: scale(0.96);
+    }
+    /* Corner brackets for the minimalist dropzone */
+    .bracket-tl {
+      position: absolute; top: -12px; left: -12px; width: 14px; height: 14px;
+      border-top: 1.5px solid #3a3a3e; border-left: 1.5px solid #3a3a3e;
+    }
+    .bracket-tr {
+      position: absolute; top: -12px; right: -12px; width: 14px; height: 14px;
+      border-top: 1.5px solid #3a3a3e; border-right: 1.5px solid #3a3a3e;
+    }
+    .bracket-bl {
+      position: absolute; bottom: -12px; left: -12px; width: 14px; height: 14px;
+      border-bottom: 1.5px solid #3a3a3e; border-left: 1.5px solid #3a3a3e;
+    }
+    .bracket-br {
+      position: absolute; bottom: -12px; right: -12px; width: 14px; height: 14px;
+      border-bottom: 1.5px solid #3a3a3e; border-right: 1.5px solid #3a3a3e;
+    }
+  </style>
+<!-- END: Custom Styles -->
+<meta content="web_standard" name="shell-type"/></head>
+<body class="h-full w-full overflow-hidden text-neutral-200 antialiased dot-grid-canvas relative font-sans flex flex-col justify-between">
+<!-- BEGIN: CanvasDropzoneOverlay -->
+<!-- Invisible global drag & drop receiver -->
+<div class="absolute inset-0 z-0 pointer-events-auto" data-purpose="global-drag-listener" id="drop-target"></div>
+<!-- END: CanvasDropzoneOverlay -->
+<!-- BEGIN: TopBarLayout -->
+<header class="relative z-20 w-full px-4 pt-3 pointer-events-none flex items-start justify-between">
+<!-- Top-Left Branding & Menu -->
+<div class="flex items-center gap-2 pointer-events-auto" data-purpose="top-left-menu">
+<button aria-label="Application Menu" class="h-9 w-9 flex items-center justify-center rounded-lg bg-surface border border-border text-neutral-300 tool-btn shadow-sm focus:outline-none focus:ring-1 focus:ring-accent-purple" title="Menu" type="button">
+<!-- Excalidraw hamburger icon -->
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" viewbox="0 0 24 24">
+<line x1="3" x2="21" y1="6" y2="6"></line>
+<line x1="3" x2="21" y1="12" y2="12"></line>
+<line x1="3" x2="21" y1="18" y2="18"></line>
+</svg>
+</button>
+<div class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-surface/80 backdrop-blur-sm border border-border/80 text-xs shadow-sm">
+<!-- Minimal waveform/sim icon -->
+<svg class="w-3.5 h-3.5 text-accent-purple-light" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" viewbox="0 0 24 24">
+<polygon points="5 3 19 12 5 21 5 3"></polygon>
+</svg>
+<span class="font-medium tracking-tight text-neutral-200">Live Session Simulator</span>
+<span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-400 border border-neutral-700/60">v0.9.4</span>
+</div>
+</div>
+<!-- Top-Center Floating Toolbar -->
+<nav aria-label="Canvas Toolbar" class="pointer-events-auto bg-surface border border-border rounded-xl p-1 shadow-lg flex items-center gap-0.5 text-neutral-400" data-purpose="excalidraw-floating-toolbar">
+<!-- Hand / Pan Tool -->
+<button class="tool-btn w-8 h-8 rounded-lg flex items-center justify-center text-neutral-400" title="Pan Canvas (H)" type="button">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewbox="0 0 24 24">
+<path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"></path>
+<path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"></path>
+<path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"></path>
+<path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"></path>
+</svg>
+</button>
+<!-- Selection Pointer Tool -->
+<button class="tool-btn w-8 h-8 rounded-lg flex items-center justify-center text-neutral-400" title="Select / Move (V)" type="button">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewbox="0 0 24 24">
+<path d="m3 3 7 18 3-7 7-3L3 3z"></path>
+</svg>
+</button>
+<!-- Open Video Action (Active Tool Highlight) -->
+<button class="tool-btn h-8 px-2.5 rounded-lg flex items-center gap-1.5 bg-[#6965db]/20 text-accent-purple-light border border-[#6965db]/30 font-medium text-xs hover:bg-[#6965db]/30" id="open-video-btn" title="Open Local Video (⌘O)" type="button">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24">
+<rect height="20" rx="2.18" ry="2.18" width="20" x="2" y="2"></rect>
+<line x1="7" x2="7" y1="2" y2="22"></line>
+<line x1="17" x2="17" y1="2" y2="22"></line>
+<line x1="2" x2="22" y1="12" y2="12"></line>
+<line x1="2" x2="7" y1="7" y2="7"></line>
+<line x1="2" x2="7" y1="17" y2="17"></line>
+<line x1="17" x2="22" y1="17" y2="17"></line>
+<line x1="17" x2="22" y1="7" y2="7"></line>
+</svg>
+<span>Open Video</span>
+<span class="text-[10px] opacity-75 font-mono ml-0.5">⌘O</span>
+</button>
+<!-- Placeholder Tools for Canvas Annotations -->
+<button class="tool-btn w-8 h-8 rounded-lg flex items-center justify-center text-neutral-400" title="Draw Annotation (P)" type="button">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewbox="0 0 24 24">
+<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path>
+</svg>
+</button>
+<button class="tool-btn w-8 h-8 rounded-lg flex items-center justify-center text-neutral-400" title="Frame / Rectangle (R)" type="button">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewbox="0 0 24 24">
+<rect height="18" rx="2" width="18" x="3" y="3"></rect>
+</svg>
+</button>
+<button class="tool-btn w-8 h-8 rounded-lg flex items-center justify-center text-neutral-400" title="Text Note (T)" type="button">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewbox="0 0 24 24">
+<polyline points="4 7 4 4 20 4 20 7"></polyline>
+<line x1="9" x2="15" y1="20" y2="20"></line>
+<line x1="12" x2="12" y1="4" y2="20"></line>
+</svg>
+</button>
+<button class="tool-btn w-8 h-8 rounded-lg flex items-center justify-center text-neutral-400" title="Keyframe Bookmark (B)" type="button">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewbox="0 0 24 24">
+<path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"></path>
+</svg>
+</button>
+<!-- Tool Separator -->
+<div class="w-[1px] h-5 bg-border mx-1" role="separator"></div>
+<!-- Export / Share -->
+<button class="tool-btn w-8 h-8 rounded-lg flex items-center justify-center text-neutral-400" title="Export Session" type="button">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewbox="0 0 24 24">
+<path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path>
+<polyline points="16 6 12 2 8 6"></polyline>
+<line x1="12" x2="12" y1="2" y2="15"></line>
+</svg>
+</button>
+<!-- Configuration / Settings -->
+<button class="tool-btn w-8 h-8 rounded-lg flex items-center justify-center text-neutral-400" title="Simulator Settings" type="button">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewbox="0 0 24 24">
+<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
+<circle cx="12" cy="12" r="3"></circle>
+</svg>
+</button>
+<!-- Overflow Menu -->
+<button class="tool-btn w-8 h-8 rounded-lg flex items-center justify-center text-neutral-400" title="More Options" type="button">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" viewbox="0 0 24 24">
+<circle cx="12" cy="12" r="1"></circle>
+<circle cx="19" cy="12" r="1"></circle>
+<circle cx="5" cy="12" r="1"></circle>
+</svg>
+</button>
+</nav>
+<!-- Invisible balancing spacer -->
+<div class="w-28 hidden sm:block"></div>
+</header>
+<!-- END: TopBarLayout -->
+<!-- BEGIN: MainCanvasCenter -->
+<!-- Centered Dropzone Indicator (Empty state canvas guide) -->
+<main class="relative z-10 flex flex-col items-center justify-center my-auto pointer-events-none px-6"><div class="flex flex-col w-full">
+<div class="relative flex flex-col items-center justify-center w-full max-w-4xl mx-auto px-4 py-2 pointer-events-auto">
+<!-- Object Floating Transform Anchors (Excalidraw Canvas Object Wireframe cues) -->
+<div class="relative w-full group">
+<!-- Spatial Element Status Tag (Top-left HUD badge over canvas object) -->
+<div class="flex items-center justify-between pb-3 px-1">
+<div class="flex items-center gap-2">
+<div class="flex items-center gap-1.5 px-2.5 py-1 rounded bg-surface-container-low text-on-surface">
+<span class="material-symbols-outlined text-[15px] text-surface-tint">videocam</span>
+<span class="font-label-md text-label-md tracking-tight font-medium text-on-surface">EE240_Lec14_Analog_Circuits.mp4</span>
+</div>
+<span class="font-label-sm text-label-sm text-outline font-mono px-2 py-0.5 rounded bg-surface-container-lowest">1.42 GB</span>
+<span class="font-label-sm text-label-sm text-outline font-mono px-2 py-0.5 rounded bg-surface-container-lowest">1080p60</span>
+</div>
+<div class="flex items-center gap-2">
+<div class="flex items-center gap-1.5 px-2.5 py-1 rounded bg-surface-container-lowest text-on-surface-variant font-label-sm text-label-sm">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+<span class="text-on-surface font-mono">Local Buffer Mounted</span>
+<span class="text-outline hidden sm:inline">• Zero Cloud Transit</span>
+</div>
+</div>
+</div>
+<!-- Main Canvas Video Canvas Node (Architectural Frame) -->
+<div class="relative aspect-video w-full rounded-xl overflow-hidden bg-surface-container-lowest shadow-2xl transition-all duration-200">
+<!-- Video Preview Authentic Classroom Image -->
+<img class="w-full h-full object-cover select-none" data-alt="Technical university amphitheater whiteboard during an electrical engineering lecture on Analog Integrated Circuits. High-resolution blackboard covered with clear chalk diagrams of transistor topologies, frequency response bode plots, and small signal models. Dim ambient auditorium lighting focused on blackboard, cinematic technical educational aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDc7Lx2yHZtPr7kgn2qsC6gf97KLSfZ_mEFZ_yuGzusNrIzaAqc9Gap4gpvjFoDl5h92xVZPDejZyAm2i5kE5B7DQpL6KcDuhU2UlEkcDVfrSEWEcNtXXa-Y1LwdL78UyCx-rlK07CF57F4cwene_fK-kO5zVciLwNzXCYFENDjecQnaRQoJ_dg4DDYAzu0WxO0GWA0f2jq-u6VYrzcqu0nLdNhdWr2oxlkSHGY1-0"/>
+<!-- Canvas Object Selection Corner Marks (Excalidraw feel) -->
+<div class="absolute top-2 left-2 w-2 h-2 rounded-xs bg-primary-container pointer-events-none opacity-80"></div>
+<div class="absolute top-2 right-2 w-2 h-2 rounded-xs bg-primary-container pointer-events-none opacity-80"></div>
+<div class="absolute bottom-2 left-2 w-2 h-2 rounded-xs bg-primary-container pointer-events-none opacity-80"></div>
+<div class="absolute bottom-2 right-2 w-2 h-2 rounded-xs bg-primary-container pointer-events-none opacity-80"></div>
+<!-- Video Gradient Scrim for Controls -->
+<div class="absolute inset-0 bg-gradient-to-t from-surface-container-lowest/90 via-surface-container-lowest/15 to-transparent flex flex-col justify-between p-4 pointer-events-none">
+<!-- Top Scrim Overlay: Lecture Info -->
+<div class="flex items-center justify-between pointer-events-auto">
+<div class="px-2.5 py-1 rounded bg-surface-container-low/90 backdrop-blur-md">
+<span class="font-headline-sm text-headline-sm text-on-surface font-medium block">EE240: Analog Integrated Circuits</span>
+<span class="font-body-sm text-body-sm text-outline block">Lecture 14 — Frequency Response &amp; Pole Splitting</span>
+</div>
+<div class="px-2 py-1 rounded bg-surface-container-low/90 backdrop-blur-md flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[14px] text-tertiary">hd</span>
+<span class="font-label-sm text-label-sm font-mono text-on-surface">AVC/H.264</span>
+</div>
+</div>
+<!-- Bottom Scrim Overlay: Scrub Bar & Timing -->
+<div class="flex flex-col gap-2 w-full pointer-events-auto">
+<!-- Timeline Scrubber -->
+<div class="relative w-full h-1 bg-surface-variant/80 rounded-full cursor-pointer group/track overflow-visible">
+<div class="absolute left-0 top-0 bottom-0 w-0 bg-primary-container rounded-full group-hover/track:bg-surface-tint"></div>
+<!-- Scrubber Thumb at start -->
+<div class="absolute -top-1 left-0 w-3 h-3 rounded-full bg-on-primary-container shadow-md transition-transform scale-90 group-hover/track:scale-110"></div>
+</div>
+<!-- Timecodes and Status -->
+<div class="flex items-center justify-between text-on-surface-variant font-label-sm text-label-sm font-mono">
+<div class="flex items-center gap-2">
+<span class="text-on-surface font-medium">00:00:00</span>
+<span class="text-outline">/</span>
+<span class="text-outline">01:24:18</span>
+</div>
+<div class="flex items-center gap-3">
+<span class="px-1.5 py-0.5 rounded bg-surface-container text-on-surface-variant">Cue: Entry Point</span>
+<span>Track 1: Master Audio (Stereo 48kHz)</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Dimension Metrics Ruler Marker (Canvas annotation accent) -->
+<div class="flex justify-between items-center px-1 pt-1.5 text-outline font-label-sm text-label-sm font-mono select-none">
+<span>X: 240px   Y: 180px</span>
+<span>1920 × 1080 (16:9 Canvas Node)</span>
+</div>
+</div>
+<!-- Action Dock & Simulation Configuration -->
+<div class="mt-6 flex flex-col sm:flex-row items-center justify-between w-full max-w-3xl gap-4 p-2 rounded-xl bg-surface-container-low shadow-xl">
+<!-- Left: Simulation Parameters Chips -->
+<div class="flex items-center gap-2 flex-wrap">
+<!-- Interactive Toggle: Live Peer Simulation -->
+<button class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high transition-colors cursor-pointer text-left" id="peer-sim-toggle" title="Toggle synthesized cohort chat &amp; peer reactions" type="button">
+<span class="w-2 h-2 rounded-full bg-primary-container"></span>
+<div class="flex flex-col">
+<span class="font-label-md text-label-md text-on-surface leading-tight font-medium">Simulate Cohort Q&amp;A</span>
+<span class="font-label-sm text-label-sm text-outline leading-none">64 virtual students active</span>
+</div>
+<span class="material-symbols-outlined text-[16px] text-surface-tint ml-1">sync_alt</span>
+</button>
+<!-- Playback Rate Pill -->
+<div class="flex items-center px-2.5 py-1.5 rounded-lg bg-surface-container text-on-surface">
+<span class="font-label-sm text-label-sm text-outline font-mono mr-1.5">Speed:</span>
+<span class="font-label-md text-label-md font-mono text-on-surface font-medium">1.0x</span>
+</div>
+</div>
+<!-- Right: Main Call to Actions -->
+<div class="flex items-center gap-2 w-full sm:w-auto justify-end">
+<!-- Choose another file button -->
+<button class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface transition-all text-left" id="change-file-btn" title="Load a different video file" type="button">
+<span class="material-symbols-outlined text-[16px] text-outline">folder_open</span>
+<span class="font-body-md text-body-md font-medium text-on-surface">Change</span>
+<span class="font-label-sm text-label-sm text-outline font-mono ml-0.5">⌘O</span>
+</button>
+<!-- Primary Start Session CTA -->
+<button class="flex items-center gap-2 px-5 py-2 rounded-lg bg-primary-container hover:bg-[#7874e4] active:scale-[0.98] text-on-primary-container shadow-md transition-all font-medium" id="start-session-trigger" type="button">
+<span class="material-symbols-outlined text-[18px]">sensors</span>
+<span class="font-body-md text-body-md tracking-tight font-semibold">Start Live Session</span>
+<span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+</button>
+</div>
+</div>
+<!-- Hidden native file input for changing video -->
+<input accept="video/*" class="hidden" id="hidden-video-selector" type="file"/>
+<!-- Keyboard Cue Footer Tip -->
+<div class="mt-4 flex items-center gap-2 text-outline font-label-sm text-label-sm select-none">
+<span class="font-mono px-1.5 py-0.5 rounded bg-surface-container-low text-on-surface-variant">Space</span>
+<span>to preview frame</span>
+<span class="text-surface-variant">•</span>
+<span class="font-mono px-1.5 py-0.5 rounded bg-surface-container-low text-on-surface-variant">Enter</span>
+<span>to initialize session</span>
+</div>
+</div>
+<script>
+    (function() {
+      const changeBtn = document.getElementById('change-file-btn');
+      const hiddenInput = document.getElementById('hidden-video-selector');
+      const startBtn = document.getElementById('start-session-trigger');
+      const toggleSim = document.getElementById('peer-sim-toggle');
+
+      if (changeBtn && hiddenInput) {
+        changeBtn.addEventListener('click', () => {
+          hiddenInput.click();
+        });
+      }
+
+      if (startBtn) {
+        startBtn.addEventListener('click', () => {
+          startBtn.classList.add('opacity-80');
+          startBtn.innerHTML = '<span class="material-symbols-outlined text-[18px] animate-spin">progress_activity</span><span class="font-body-md text-body-md font-semibold">Launching Session...</span>';
+          setTimeout(() => {
+            console.log('Session initialized with local video stream.');
+          }, 600);
+        });
+      }
+
+      if (toggleSim) {
+        let active = true;
+        toggleSim.addEventListener('click', () => {
+          active = !active;
+          const indicator = toggleSim.querySelector('span:first-child');
+          const subText = toggleSim.querySelector('span.leading-none');
+          if (indicator && subText) {
+            if (active) {
+              indicator.className = 'w-2 h-2 rounded-full bg-primary-container';
+              subText.textContent = '64 virtual students active';
+            } else {
+              indicator.className = 'w-2 h-2 rounded-full bg-surface-variant';
+              subText.textContent = 'Muted / Solo playback mode';
+            }
+          }
+        });
+      }
+
+      window.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          if (startBtn) startBtn.click();
+        }
+      });
+    })();
+  </script>
+</div></main>
+<!-- END: MainCanvasCenter -->
+<!-- BEGIN: BottomUtilityControls -->
+<footer class="relative z-20 w-full px-4 pb-4 pointer-events-none flex items-end justify-between">
+<!-- Bottom-Left: Zoom & Canvas History Pill (Excalidraw style) -->
+<div class="pointer-events-auto bg-surface border border-border rounded-xl p-1 shadow-lg flex items-center gap-1 text-neutral-400" data-purpose="zoom-history-controls">
+<!-- Zoom Out -->
+<button class="tool-btn w-7 h-7 rounded-lg flex items-center justify-center text-xs hover:text-neutral-200" title="Zoom Out (-)" type="button">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" viewbox="0 0 24 24">
+<line x1="5" x2="19" y1="12" y2="12"></line>
+</svg>
+</button>
+<!-- Zoom Level Indicator -->
+<button class="tool-btn px-2 h-7 rounded-lg text-xs font-mono font-medium text-neutral-300 hover:text-white" title="Reset Zoom to 100%" type="button">
+        100%
+      </button>
+<!-- Zoom In -->
+<button class="tool-btn w-7 h-7 rounded-lg flex items-center justify-center text-xs hover:text-neutral-200" title="Zoom In (+)" type="button">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" viewbox="0 0 24 24">
+<line x1="12" x2="12" y1="5" y2="19"></line>
+<line x1="5" x2="19" y1="12" y2="12"></line>
+</svg>
+</button>
+<!-- Divider -->
+<div class="w-[1px] h-4 bg-border mx-0.5" role="separator"></div>
+<!-- Undo -->
+<button class="tool-btn w-7 h-7 rounded-lg flex items-center justify-center text-xs hover:text-neutral-200" title="Undo (⌘Z)" type="button">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24">
+<path d="M3 7v6h6"></path>
+<path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path>
+</svg>
+</button>
+<!-- Redo -->
+<button class="tool-btn w-7 h-7 rounded-lg flex items-center justify-center text-xs hover:text-neutral-200" title="Redo (⌘⇧Z)" type="button">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24">
+<path d="M21 7v6h-6"></path>
+<path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"></path>
+</svg>
+</button>
+</div>
+<!-- Bottom-Right: Help & Shortcuts Pill -->
+<div class="pointer-events-auto bg-surface border border-border rounded-xl p-1 shadow-lg flex items-center gap-1 text-neutral-400" data-purpose="help-shortcuts-controls">
+<!-- Shortcuts Dialog Trigger -->
+<button class="tool-btn w-7 h-7 rounded-lg flex items-center justify-center hover:text-neutral-200" title="Keyboard Shortcuts (?)" type="button">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24">
+<rect height="14" rx="2" width="20" x="2" y="5"></rect>
+<line x1="6" x2="6" y1="9" y2="9.01"></line>
+<line x1="10" x2="10" y1="9" y2="9.01"></line>
+<line x1="14" x2="14" y1="9" y2="9.01"></line>
+<line x1="18" x2="18" y1="9" y2="9.01"></line>
+<line x1="7" x2="17" y1="13" y2="13"></line>
+</svg>
+</button>
+<!-- Help Documentation -->
+<button class="tool-btn w-7 h-7 rounded-lg flex items-center justify-center hover:text-neutral-200" title="Help &amp; Documentation" type="button">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24">
+<circle cx="12" cy="12" r="10"></circle>
+<path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+<line x1="12" x2="12.01" y1="17" y2="17"></line>
+</svg>
+</button>
+</div>
+</footer>
+<!-- END: BottomUtilityControls -->
+<!-- BEGIN: InteractiveScriptHandlers -->
+<script data-purpose="drag-drop-interactivity">
+    // Minimal interaction script handling drag visual feedback and file triggers
+    const dropArea = document.getElementById('drop-target');
+    const centerZone = document.getElementById('center-zone');
+    const openBtn = document.getElementById('open-video-btn');
+    const fileInput = document.getElementById('hidden-file-input');
+
+    // Trigger file dialog
+    openBtn.addEventListener('click', () => fileInput.click());
+
+    // Keyboard shortcut ⌘O / Ctrl+O handler
+    window.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'o') {
+        e.preventDefault();
+        fileInput.click();
+      }
+    });
+
+    // Drag-over visual feedback on the canvas
+    ['dragenter', 'dragover'].forEach(eventName => {
+      window.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        centerZone.classList.add('scale-105');
+      }, false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+      window.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        centerZone.classList.remove('scale-105');
+      }, false);
+    });
+
+    window.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const files = e.dataTransfer.files;
+      if (files.length > 0) {
+        console.log('Video loaded into session:', files[0].name);
+      }
+    });
+  </script>
+<!-- END: InteractiveScriptHandlers -->
+</body></html>
