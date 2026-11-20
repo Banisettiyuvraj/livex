@@ -17,6 +17,7 @@
 
 import type {
   MediaMetadata,
+  PlaybackEngineId,
   PlaybackErrorDetails,
   SessionState,
 } from "../types/media";
@@ -37,13 +38,39 @@ const SEEK_BLOCK_THRESHOLD = 0.5;
 /** Largest forward timeupdate step still counted as contiguous playback. */
 const MAX_CONTIGUOUS_DELTA = 2;
 
+/**
+ * The session layer is deliberately platform-agnostic: it runs in the browser,
+ * in Node for unit tests, and would run under SSR. Reach for the global timer
+ * functions rather than `window.setTimeout`, which only exists in a DOM.
+ */
+const schedule = (fn: () => void, ms: number): number =>
+  setTimeout(fn, ms) as unknown as number;
+const cancel = (handle: number | null): void => {
+  if (handle !== null) clearTimeout(handle);
+};
+
 export type IntegrityListener = (integrity: SessionIntegrity) => void;
 export type SessionListener = (event: SessionChangeEvent) => void;
 export type ProgressListener = (progress: SessionProgress) => void;
 export type ErrorListener = (details: PlaybackErrorDetails) => void;
 
+/**
+ * The session layer never names a concrete engine. A YouTube link needs a
+ * different entry point than a `File`, so it asks for exactly that shape and
+ * nothing more — the same way it only ever asks for `PlaybackAdapter`.
+ */
+export interface YouTubeCapableAdapter {
+  loadVideo(input: string): Promise<MediaMetadata>;
+  /**
+   * `false` when the engine must not start on its own. The YouTube adapter sets
+   * this because the LIVE session has to begin at 0:00 on the user's click, not
+   * whenever the player happened to become ready.
+   */
+  autoplaysOnLoad?: boolean;
+}
+
 export class SessionManager {
-  private readonly adapter: PlaybackAdapter;
+  private adapter: PlaybackAdapter;
 
   private state: SessionState = "idle";
   private metadata: MediaMetadata | null = null;
@@ -62,7 +89,7 @@ export class SessionManager {
   private guardSeek = false;
   private engineEnded = false;
   private pendingPauseTransition: number | null = null;
-  private readonly unsubscribers: Array<() => void> = [];
+  private unsubscribers: Array<() => void> = [];
 
   private readonly sessionListeners = new Set<SessionListener>();
   private readonly progressListeners = new Set<ProgressListener>();
@@ -80,6 +107,41 @@ export class SessionManager {
 
   getState(): SessionState {
     return this.state;
+  }
+
+  /** Which engine is driving this session, for mode-aware UI. */
+  getEngineId(): PlaybackEngineId {
+    return this.adapter.id;
+  }
+
+  /** The engine currently attached — the UI must not cache its own copy. */
+  getAdapter(): PlaybackAdapter {
+    return this.adapter;
+  }
+
+  /**
+   * Swap the playback engine (local file ⇄ YouTube).
+   *
+   * The session layer keeps ownership of exactly one *active* engine. Engines
+   * are long-lived objects owned by the composition root, and the same instance
+   * is reattached when a mode is re-entered — so this method must never dispose
+   * the engine it is swapping in. Disposing it is what turns "switch to a local
+   * file" into "the player has already been disposed".
+   *
+   * Listeners are re-subscribed for the new adapter, while the session
+   * listeners the UI registered are preserved across the swap.
+   *
+   * The caller is responsible for returning the session to `idle` first
+   * (`reset()`), because a session in flight belongs to the old engine.
+   */
+  setAdapter(adapter: PlaybackAdapter): void {
+    if (adapter === this.adapter) return;
+    for (const off of this.unsubscribers.splice(0)) off();
+    this.resetTracking();
+    this.metadata = null;
+    this.state = "idle";
+    this.adapter = adapter;
+    this.subscribeToAdapter();
   }
 
   getSnapshot(): SessionSnapshot {
@@ -134,6 +196,40 @@ export class SessionManager {
     return this.metadata;
   }
 
+  /**
+   * Load a YouTube link.
+   *
+   * The session lands in `ready` and waits for the explicit start, exactly like
+   * a local file (and when the engine declares `autoplaysOnLoad: false`). That
+   * keeps the LIVE promise honest: playback starts at 0:00 when the user says
+   * so, not partway through while the player was still being set up.
+   */
+  async loadYouTube(input: string): Promise<MediaMetadata> {
+    this.resetTracking();
+    this.metadata = null;
+
+    const yt = this.adapter as unknown as Partial<YouTubeCapableAdapter>;
+    if (typeof yt.loadVideo !== "function") {
+      throw new Error("The active playback engine cannot load YouTube links.");
+    }
+
+    this.metadata = await yt.loadVideo(input);
+
+    this.duration = this.adapter.getDuration() || this.metadata.duration || 0;
+    this.currentTime = 0;
+    this.furthestTime = 0;
+    this.playbackRate = 1;
+    this.adapter.setPlaybackRate(1);
+
+    this.transition("ready", "file-loaded");
+    // The YouTube engine declines to self-start so the session cannot begin
+    // mid-video; the UI's Start button is the single entry into `live`.
+    if (yt.autoplaysOnLoad !== false) {
+      await this.playFromCurrentState("started");
+    }
+    return this.metadata;
+  }
+
   /** Start (or restart) the session from 0:00 at 1×. */
   async start(): Promise<void> {
     if (this.state !== "ready" && this.state !== "completed") {
@@ -147,8 +243,14 @@ export class SessionManager {
     this.adapter.setPlaybackRate(1);
     this.adapter.seek(0);
 
+    await this.playFromCurrentState("started");
+  }
+
+  private async playFromCurrentState(reason: SessionChangeReason): Promise<void> {
     await this.adapter.play();
-    this.transition("live", "started");
+    // An engine may report `play` itself, in which case we are already live and
+    // this transition is a harmless no-op.
+    if (this.state !== "live") this.transition("live", reason);
   }
 
   /**
@@ -270,7 +372,7 @@ export class SessionManager {
       // completion transition, so defer briefly and re-check.
       adapter.on("pause", () => {
         if (this.state !== "live") return;
-        this.pendingPauseTransition = window.setTimeout(() => {
+        this.pendingPauseTransition = schedule(() => {
           this.pendingPauseTransition = null;
           if (this.state === "live" && !this.engineEnded) {
             this.transition("paused", "paused");
@@ -295,7 +397,7 @@ export class SessionManager {
       adapter.on("ended", () => {
         this.engineEnded = true;
         if (this.pendingPauseTransition !== null) {
-          window.clearTimeout(this.pendingPauseTransition);
+          cancel(this.pendingPauseTransition);
           this.pendingPauseTransition = null;
         }
         // Completion is only valid from an active (live/paused) session, i.e.
@@ -348,7 +450,7 @@ export class SessionManager {
       this.currentTime = clamped;
       this.emitProgress();
       // Release the guard on the next macrotask so the echo seek settles first.
-      window.setTimeout(() => {
+      schedule(() => {
         this.guardSeek = false;
       }, 0);
     }
@@ -375,7 +477,10 @@ export class SessionManager {
     const withinCeiling = current <= this.furthestTime + SEEK_TOLERANCE;
 
     if (!forwardBy || !withinCeiling) {
-      this.closeStretch();
+      // Close the stretch against the position we *had* reached, not the new
+      // one — on a rewind `current` has already jumped backwards and would
+      // otherwise erase the stretch that just ended.
+      this.closeStretch(previous);
       return;
     }
 
@@ -383,8 +488,13 @@ export class SessionManager {
     if (this.stretchStart === null) this.stretchStart = previous;
   }
 
-  private closeStretch(): void {
-    const stretch = this.currentStretch();
+  /**
+   * Commit the running stretch. `endTime` must be the last position reached
+   * while playing; passing the post-seek position would compute a negative
+   * length and silently discard the record.
+   */
+  private closeStretch(endTime: number = this.currentTime): void {
+    const stretch = this.stretchStart === null ? 0 : Math.max(0, endTime - this.stretchStart);
     if (stretch > this.longestStretch) this.longestStretch = stretch;
     this.stretchStart = null;
   }
@@ -450,7 +560,7 @@ export class SessionManager {
     this.guardSeek = false;
     this.engineEnded = false;
     if (this.pendingPauseTransition !== null) {
-      window.clearTimeout(this.pendingPauseTransition);
+      cancel(this.pendingPauseTransition);
       this.pendingPauseTransition = null;
     }
   }

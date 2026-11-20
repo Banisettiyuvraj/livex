@@ -142,7 +142,7 @@ no storage, no telemetry, no fetch. Verified by automated test — see below.
 
 `npm run build` → typecheck clean, **26.6 kB JS (8.8 kB gzip)**.
 
-`node tests/e2e.mjs` → **37/37 checks pass** in Chromium via Playwright, covering:
+`tests/e2e/livex.spec.ts` → **37/37 checks pass** in Chromium via Playwright, covering:
 
 - boot with no console/page errors; exactly one `<video>` instance;
 - all 12 fixtures of the compatibility matrix (see COMPATIBILITY.md);

@@ -26,7 +26,8 @@ So this doc does not repeat solved problems:
 
 ## Part 1 — High-value, low-risk ✅ SHIPPED in v1.3
 
-All six items are implemented and covered by `tests/features.mjs` (36 checks).
+All six items are implemented and covered by `tests/e2e/features.spec.ts`
+(37 checks, driven by `tests/e2e/suites/part1.mjs`).
 See the implementation notes at the end of this section.
 
 These add real utility without touching the architecture or privacy model.
@@ -159,8 +160,8 @@ user choice, not a silent resume, to stay true to the spec.
 
 ### Implementation notes (v1.4)
 
-All six Part 2 items are implemented and covered by `tests/features2.mjs`
-(69 checks, dev + production build).
+All six Part 2 items are implemented and covered by
+`tests/e2e/features.spec.ts` (69 checks, driven by `tests/e2e/suites/part2.mjs`).
 
 | Item | Where | Notes |
 | --- | --- | --- |
@@ -189,7 +190,7 @@ All six Part 2 items are implemented and covered by `tests/features2.mjs`
 
 ## Part 3 — Playback depth (the technical roadmap)
 
-### 3.1 Wire the `WasmMediaAdapter` when the gate passes
+### 3.1 Wire the `WasmMediaAdapter` when the gate passes ⛔ NOT NOW
 
 The seam exists and fails closed today. See `docs/FEASIBILITY-WASM.md`. Revisit
 only if: (a) evidence shows non-native formats are a large share of real drops,
@@ -199,7 +200,7 @@ near-real-time, and (c) a canvas + WebAudio presenter is budgeted.
 If it happens: lazy-load only after a native failure, behind a flag, and never on
 the default path.
 
-### 3.2 Codec detail for AVI / TS / PS
+### 3.2 Codec detail for AVI / TS / PS ⬜ OPEN — recommended next
 
 The probe currently cannot name codecs in those containers (says "container
 unsupported"). A minimal AVI `hdrl`/`strf` reader and an MPEG-TS PMT parser would
@@ -207,60 +208,98 @@ turn those into precise messages and make the compatibility matrix complete.
 
 - Cost: medium (~200 LOC each, well-scoped).
 
-### 3.3 Streamed probe for large files
+### 3.3 Streamed probe for large files ⬜ OPEN (low priority)
 
 Today: 64 KB head + up to 2 MB tail. For 10 GB files this is fine, but a proper
 `moov` *scan* (box-by-box seeking rather than loading a 2 MB tail) would reduce
 memory and handle `moov` anywhere. Low priority but clean.
 
-### 3.4 Capability cache
+### 3.4 Capability cache ⬜ OPEN
 
 `canPlayType` results per container/codec are stable for a session. Cache them in
 memory (and optionally `localStorage`) to skip repeated probing.
 
-### 3.5 Better memory behaviour on huge files
+### 3.5 Better memory behaviour on huge files ⬜ OPEN
 
 Object URLs are cheap, but decoding a 4K file on a low-RAM device is not. Add a
 "low memory" mode that avoids the tail read and preloads `metadata` only.
 
 ---
 
+## Part 6 — YouTube link mode ✅ SHIPPED in v1.5
+
+Paste a YouTube link and it plays as a simulated live session. Full design
+record, constraints and non-guarantees: [YOUTUBE-MODE-PLAN.md](./YOUTUBE-MODE-PLAN.md).
+
+| Item | Where | Notes |
+| --- | --- | --- |
+| URL parsing | `src/files/YouTubeSource.ts` | watch / youtu.be / embed / shorts / live, scheme-less, `t=` and `start=` offsets. Only the validated 11-char id reaches the embed URL |
+| Player | `src/playback/YouTubeAdapter.ts` | `PlaybackAdapter` on the IFrame Player API; maps `ENDED`/pause/play, polls position, fails soft offline |
+| Engine swap | `SessionManager.setAdapter()` / `loadYouTube()` | exactly one active engine; the outgoing adapter is disposed, listeners preserved |
+| Paste + disclosure | `WorkspaceUI.bindYouTubePaste()` | paste anywhere, one-time privacy notice before any Google code loads |
+| Mode chrome | `body.youtube-mode` in `app.css` | local-only controls (chapters, captions, PiP, bookmarks) step aside |
+
+**Decisions worth keeping:**
+
+- YouTube's own controls stay visible (`controls=1`). It is what users expect
+  from "the same as YouTube", and it keeps the embed within YouTube's terms,
+  which permit embedding but forbid circumventing the player.
+- The local-file promise is unchanged: no Google code is fetched until the user
+  accepts the disclosure, and local sessions still make zero external requests.
+- Anti-skip is **advisory** in this mode and the UI says so, because a
+  cross-origin iframe cannot be clamped from outside.
+- No video is downloaded, proxied or cached — only the id is held, in memory.
+
+---
+
 ## Part 4 — Engineering quality
 
-### 4.1 Unit tests (currently only E2E)
+### 4.1 Unit tests ✅ DONE
 
-We have 37 browser checks but no unit tests. The highest-value units:
+Implemented: eight Vitest suites under `tests/unit/` covering the pieces that
+are pure logic and were previously only reachable through a browser:
 
-- `MediaProbe` — fixture bytes → expected container/codec (already have fixtures!).
+- `MediaProbe` — fixture bytes → expected container/codec (uses the real fixtures).
 - `SessionState` — every transition pair, including illegal ones.
 - `PlaybackErrors` — every `MediaError` code → correct message.
-- `formatTime` — edge cases (`NaN`, `0`, `> 1h`).
+- `format` — `formatTime` edge cases (`NaN`, `0`, `> 1h`).
+- plus `sessionManager`, `chapters`, `subtitles`, `analytics`.
 
-Vitest runs these in milliseconds versus Playwright's seconds.
+Run with `npm run test:unit`. They execute in milliseconds, where the browser
+suites take seconds.
 
-### 4.2 Make the E2E suite self-contained
+### 4.2 Make the E2E suite self-contained ✅ DONE
 
-`tests/e2e.mjs` currently needs a manually started dev server and a
-`window.__livex` dev hook (absent in prod builds). Move to `@playwright/test`
-with a `webServer` config so `npm test` just works, in dev **and** against `dist`.
+Implemented: `playwright.config.ts` declares a `webServer`, so `npm test` works
+from a clean checkout with no manually started dev server. `testMatch` is
+restricted to `tests/e2e/*.spec.ts`; the shared assertion bodies live in
+`tests/e2e/suites/part1.mjs` and `part2.mjs` and are imported by
+`tests/e2e/features.spec.ts`.
 
-### 4.3 Bundle Tailwind locally
+The three standalone runners (`tests/e2e.mjs`, `tests/features.mjs`,
+`tests/features2.mjs`) have been **deleted** — they were superseded duplicates
+(the feature runners were byte-equivalent to the shared suites, and the E2E
+runner's few unique DOM assertions were ported into `livex.spec.ts`).
 
-Today the page pulls Tailwind from a CDN plus Google Fonts — the only outbound
-requests in the app. Building Tailwind locally makes the page **fully offline**,
-shrinks the CSS massively, and removes the CDN as a failure/privacty talking point.
-This is the single best privacy/WAF story improvement available.
+Pointing the suite at the production bundle needs an env var that is not
+portable across shells, so it is documented rather than scripted: set
+`LIVEX_TARGET=prod` (the config then builds, serves `dist/` on 4173 and sets
+`VITE_LIVEX_TEST_HOOKS=1`).
 
-- Cost: low. `tailwindcss` + a small config mirroring the inline `theme.extend`.
+### 4.3 Bundle Tailwind locally ✅ DONE in v1.2
 
-### 4.4 Delete dead files
+Done ahead of schedule: `tailwind.config.js` + `postcss.config.js` build the CSS
+locally and both font families are self-hosted via `@fontsource/*`, so the page
+makes **zero external requests** and works offline. `tests/build-check.mjs`
+guards the built output over both `http` and `file://`.
 
-`style.css` is an unreferenced legacy LocalPlay sheet (493 lines, linked by
-nothing) and `script.js` is the pre-upgrade reference. Move both to a
-`legacy/` folder or delete. `localplay/` is a full nested git repo — make it a
-proper submodule or drop it.
+### 4.4 Delete dead files ✅ DONE in v1.2
 
-### 4.5 Accessibility pass
+`style.css` and the pre-upgrade `script.js` are gone. Still open: `localplay/` is
+a full nested git repo — make it a proper submodule or drop it, since it is not
+part of the build.
+
+### 4.5 Accessibility pass ⬜ OPEN — highest-value remaining item
 
 - The workspace drop zone is not keyboard-reachable; add a focusable
   "drop or browse" target.
@@ -269,15 +308,16 @@ proper submodule or drop it.
 - Verify contrast on `text-neutral-500` over `#121212`.
 - Focus-visible rings are currently removed by `select-none` styling choices.
 
-### 4.6 Structured error reporting (still local)
+### 4.6 Structured error reporting (still local) ⬜ OPEN
 
 A `PlaybackErrorCode` histogram in dev builds only. Never send it anywhere.
 
-### 4.7 Telemetry-free "compatibility report" export
+### 4.7 Telemetry-free "compatibility report" export ⬜ OPEN
 
 A "Copy device capability report" button in dev/support mode that exports the
 `canPlayType` matrix as text — lets users report playback issues without
 uploading a file. Directly supports the "no universal support" honesty stance.
+`PlaybackCapabilityDetector.describeSupport()` already produces the data.
 
 ---
 
@@ -295,15 +335,27 @@ uploading a file. Directly supports the "no universal support" honesty stance.
 
 ---
 
-## Recommended sequence
+## Recommended sequence — status
 
-1. **Part 4.3 + 4.4 + 4.5** — offline Tailwind, delete dead files, a11y pass.
-   Cheap, and it hardens the foundation.
-2. **1.3 + 1.4 + 1.5** — keyboard, shortcuts panel, PiP. Visible polish, low risk.
-3. **1.1 + 2.1** — local history + skip-attempt reporting. Makes sessions mean something.
-4. **2.5 + 2.3** — subtitles, then chapters/playlist.
-5. **4.1 + 4.2** — unit tests and a self-contained test runner, before the surface grows.
-6. Re-evaluate **3.1** only with real evidence.
+1. ~~**Part 4.3 + 4.4 + 4.5** — offline Tailwind, delete dead files, a11y pass.~~
+   **4.3 and 4.4 done (v1.2). 4.5 still open** and is the highest-value remaining
+   item. Cheap, and it hardens the foundation.
+2. ~~**1.3 + 1.4 + 1.5** — keyboard, shortcuts panel, PiP.~~ **Done (v1.3).**
+3. ~~**1.1 + 2.1** — local history + skip-attempt reporting.~~ **Done (v1.3/v1.4).**
+4. ~~**2.5 + 2.3** — subtitles, then chapters/playlist.~~ **Done (v1.4).**
+5. ~~**4.1 + 4.2** — unit tests and a self-contained test runner.~~ **Done.**
+6. Re-evaluate **3.1** only with real evidence. **Still refused** — see below.
+7. **Next up: 3.2** — codec detail for AVI/TS/PS, then **4.5** accessibility.
+
+### Why 3.2 is the next real feature (not 3.1)
+
+`FEASIBILITY-WASM.md` rates AVI/MPEG-2 as *low frequency*, yet those containers
+account for 4 of the 14 compatibility fixtures — so the flagship "tell the user
+**why** a file failed" behaviour currently degrades to a vague "container
+unsupported" for a large share of the tested cases. Reading an AVI `hdrl`/`strf`
+header and an MPEG-TS PMT turns those into precise messages for ~200 LOC each,
+with no architecture change. It also produces the evidence the 3.1 gate demands:
+you cannot claim non-native formats are rare until you can name them.
 
 ### What to keep refusing
 

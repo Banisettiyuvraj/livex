@@ -16,7 +16,7 @@ export type SessionState =
   | "error";
 
 /** Which playback implementation is currently driving the session. */
-export type PlaybackEngineId = "native" | "wasm";
+export type PlaybackEngineId = "native" | "wasm" | "youtube";
 
 /** High-level playback status reported by an adapter. */
 export type PlaybackStatus =
@@ -25,6 +25,7 @@ export type PlaybackStatus =
   | "ready"
   | "playing"
   | "paused"
+  | "buffering"
   | "ended"
   | "error";
 

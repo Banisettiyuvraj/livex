@@ -131,6 +131,38 @@
         <span>.mp4, .mkv, .webm</span>
       </div>
 
+      <!-- YouTube link mode. Deliberately separate from the local-file promise:
+           this mode is online and discloses that before it loads anything. -->
+      <div class="w-full max-w-sm mt-8 pointer-events-auto text-left">
+        <div class="flex items-center gap-3 mb-3">
+          <span class="h-px flex-1 bg-border"></span>
+          <span class="text-[10px] font-mono uppercase tracking-widest text-neutral-500">or a YouTube link</span>
+          <span class="h-px flex-1 bg-border"></span>
+        </div>
+
+        <div class="flex items-center gap-2 p-1.5 rounded-xl bg-surface border border-border shadow-lg focus-within:border-accent-purple/60">
+          <svg aria-hidden="true" class="w-4 h-4 ml-1.5 shrink-0 text-red-500/90" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2C0 8.1 0 12 0 12s0 3.9.5 5.8a3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1c.5-1.9.5-5.8.5-5.8s0-3.9-.5-5.8ZM9.6 15.6V8.4l6.2 3.6-6.2 3.6Z"></path>
+          </svg>
+          <input id="youtube-input" type="text" inputmode="url" autocomplete="off" spellcheck="false"
+                 placeholder="Paste a YouTube link — it starts live"
+                 aria-label="YouTube video link"
+                 class="flex-1 min-w-0 bg-transparent text-sm text-neutral-200 placeholder:text-neutral-600 outline-none py-1.5" />
+          <button id="youtube-paste-btn" class="px-2.5 py-1.5 rounded-lg text-[11px] font-medium text-neutral-300 hover:text-white hover:bg-surface-hover transition-colors focus-ring shrink-0">Paste</button>
+          <button id="youtube-use-btn" class="px-3 py-1.5 rounded-lg bg-[#6965db]/25 hover:bg-[#6965db]/40 border border-[#6965db]/40 text-accent-purple-light text-[11px] font-medium transition-colors focus-ring shrink-0">Go live</button>
+        </div>
+
+        <p id="youtube-hint" class="hidden mt-2 px-1 text-[11px] text-amber-300/90 leading-relaxed"></p>
+
+        <p class="mt-2 px-1 text-[10px] text-neutral-600 font-mono leading-relaxed">
+          Paste anywhere on the workspace. YouTube links play through Google's embed, so this mode
+          is online — local files stay offline.
+        </p>
+        <p id="youtube-busy" class="hidden mt-2 px-1 text-[11px] text-accent-purple-light font-mono">
+          Connecting to YouTube…
+        </p>
+      </div>
+
       <!-- Playlist queue (roadmap 2.3) -->
       <div id="playlist-wrap" class="hidden w-full max-w-sm mt-8 pointer-events-auto text-left">
         <div class="flex items-center justify-between mb-1.5 px-1">
@@ -232,6 +264,7 @@
           <span class="text-[10px] text-muted-txt font-mono">Simulated Live</span>
         </div>
         <div class="flex items-center gap-2">
+          <span id="source-chip" class="hidden text-[10px] font-mono px-1.5 py-0.5 rounded bg-red-500/15 border border-red-500/40 text-red-300"></span>
           <span id="queue-badge" class="hidden text-[10px] font-mono px-1.5 py-0.5 rounded bg-surface border border-border text-neutral-400"></span>
           <span id="filename-active" class="text-xs text-muted-txt font-mono"></span>
         </div>
@@ -364,8 +397,8 @@
         </svg>
       </div>
 
-      <h2 class="text-xl font-semibold text-red-400 mb-2">Unsupported Video Format</h2>
-      <p id="error-message-text" class="text-sm text-muted-txt mb-6">This video format is not supported by your browser.</p>
+      <h2 id="error-heading" class="text-xl font-semibold text-red-400 mb-2">Playback Stopped</h2>
+      <p id="error-message-text" class="text-sm text-muted-txt mb-6">This video could not be played.</p>
 
       <button id="try-another-btn" class="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-accent-purple hover:bg-[#7874e4] text-white font-medium transition-all pointer-events-auto focus-ring">
         <span>Try Another Video</span>
@@ -470,6 +503,29 @@
         Clear saved data
       </button>
       <span class="text-[10px] text-neutral-600">History and notes only — never videos</span>
+    </div>
+  </dialog>
+
+  <!-- One-time disclosure before the first YouTube link loads Google's player.
+       This is a privacy notice, not a preference: local-file mode is unchanged
+       and still makes zero external requests. -->
+  <dialog id="youtube-consent" class="dialog-panel" aria-labelledby="youtube-consent-title">
+    <h2 id="youtube-consent-title" class="text-sm font-medium text-neutral-100 mb-2">Play a YouTube link as a live session?</h2>
+    <p class="text-[11px] text-neutral-400 leading-relaxed mb-2">
+      Loading <span id="youtube-consent-target" class="font-mono text-neutral-200">this video</span> embeds Google's
+      YouTube player. Unlike local files, that means:
+    </p>
+    <ul class="text-[11px] text-neutral-400 leading-relaxed mb-3 list-disc pl-4 space-y-1">
+      <li>your browser requests video from YouTube, so this mode is <span class="text-neutral-200">online</span>;</li>
+      <li>Google may set cookies and see your IP address, as on youtube.com;</li>
+      <li><span class="text-neutral-200">skipping cannot be enforced</span> — YouTube's own controls stay available.</li>
+    </ul>
+    <p class="text-[10px] text-neutral-500 leading-relaxed mb-4">
+      Local files are unaffected: they never leave your device and still work fully offline.
+    </p>
+    <div class="flex items-center justify-end gap-2">
+      <button id="youtube-consent-cancel" class="px-3 py-1.5 rounded-lg text-xs text-neutral-400 hover:text-white transition-colors focus-ring">Cancel</button>
+      <button id="youtube-consent-continue" class="px-3 py-1.5 rounded-lg bg-[#6965db] hover:bg-[#7874e4] text-white text-xs font-medium transition-colors focus-ring">Continue</button>
     </div>
   </dialog>
 

@@ -1,51 +1,28 @@
 /**
- * Part 1 feature verification (Playwright).
+ * Part 1 feature checks (roadmap 1.1 - 1.6).
  *
- * Covers the six roadmap items in `docs/EXPANSION-ROADMAP.md` Part 1:
- *   1.1 session history (metadata only)   1.4 shortcuts + about dialogs
- *   1.2 bookmarks + timestamped notes     1.5 picture in picture
- *   1.3 keyboard map                      1.6 time display modes
- *
- * Run: node tests/features.mjs   (needs `npm run dev` on 5173)
+ * Shared by `npm run test:features` and the Playwright spec, so there is one
+ * definition of "correct" for both entry points.
  */
 
-import { chromium } from "playwright";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+export async function runPart1(page, fixture, record) {
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
 
-const here = dirname(fileURLToPath(import.meta.url));
-const fixture = (name) => join(here, "fixtures", name);
-const BASE = process.env.LIVEX_URL ?? "http://localhost:5173/";
+  const state = () => page.evaluate(() => window.__livex.manager.getState());
+  const progress = () => page.evaluate(() => window.__livex.manager.getProgress());
+  const modeText = async () => page.locator("#time-display").textContent();
 
-const results = [];
-const record = (name, ok, detail = "") => {
-  results.push({ name, ok, detail });
-  console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? "  — " + detail : ""}`);
-};
+  async function loadAndStart(name = "h264-aac.mp4") {
+    await page.evaluate(() => window.__livex.manager.reset());
+    await page.setInputFiles("#video-input", fixture(name));
+    await page.waitForTimeout(800);
+    await page.click("#start-session-btn");
+    await page.waitForTimeout(1400);
+  }
 
-const browser = await chromium.launch();
-const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-const page = await context.newPage();
-
-const errors = [];
-page.on("pageerror", (e) => errors.push(e.message));
-page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
-
-await page.goto(BASE, { waitUntil: "load" });
-await page.waitForTimeout(900);
-
-record("boots without errors", errors.length === 0, errors.slice(0, 2).join(" | "));
-
-const state = () => page.evaluate(() => window.__livex.manager.getState());
-const progress = () => page.evaluate(() => window.__livex.manager.getProgress());
-
-async function loadAndStart(name = "h264-aac.mp4") {
-  await page.evaluate(() => window.__livex.manager.reset());
-  await page.setInputFiles("#video-input", fixture(name));
-  await page.waitForTimeout(800);
-  await page.click("#start-session-btn");
-  await page.waitForTimeout(1400);
-}
+  record("boots without errors", errors.length === 0, errors.slice(0, 2).join(" | "));
 
 /* ================================================================== */
 /* 1.3 Keyboard map                                                   */
@@ -102,7 +79,6 @@ record("[1.3] K resumes", (await state()) === "live");
 /* ================================================================== */
 /* 1.6 Time display modes                                             */
 /* ================================================================== */
-const modeText = async () => page.locator("#time-display").textContent();
 const t1 = await modeText();
 await page.click("#time-display");
 await page.waitForTimeout(250);
@@ -276,10 +252,5 @@ record("no console errors across the whole run", errors.length === 0, errors.sli
 
 await browser.close();
 
-const failed = results.filter((r) => !r.ok);
-console.log(`\n${results.length - failed.length}/${results.length} feature checks passed`);
-if (failed.length > 0) {
-  console.log("\nFailures:");
-  for (const f of failed) console.log(` - ${f.name} ${f.detail}`);
-  process.exitCode = 1;
+
 }

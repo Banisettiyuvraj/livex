@@ -1,12 +1,15 @@
 # LiveX
 
 A local-first **simulated live session** video player. Drop a class video onto
-the workspace and watch it as a "live" session that can't be skipped ahead.
+the workspace — or paste a YouTube link — and watch it as a "live" session that
+can't be skipped ahead.
 
-- Videos **never leave your device** — no upload, no backend, no accounts.
-- **Works fully offline** — Tailwind and fonts are bundled; zero external requests.
+- Local videos **never leave your device** — no upload, no backend, no accounts.
+- Local mode **works fully offline** — Tailwind and fonts are bundled; zero
+  external requests. (YouTube links are the one online mode, and say so.)
 - **TypeScript** application layer, built with Vite.
-- Native browser playback behind a swappable **playback adapter interface**.
+- Playback behind a swappable **playback adapter interface** — two engines ship:
+  native `<video>` for local files, and the YouTube IFrame player for links.
 - Real container/codec detection, so unsupported files fail with a reason.
 
 ## Quick start
@@ -21,12 +24,29 @@ npm run build      # typecheck + production bundle in dist/
 npm run preview    # serve the build → http://localhost:4173
 npm run verify     # build, then check the output over http AND file://
 npm run typecheck  # tsc --noEmit
+npm run test:unit  # fast unit tests (Vitest)
+npm test           # full browser suite (Playwright starts Vite for you)
 ```
 
 `dist/index.html` is **self-contained** — CSS and JS are inlined — so you can
 also just double-click it. It renders identically over `file://` and over http.
 
 Use **Open Video** (`⌘O` / `Ctrl+O`) or drop a file anywhere on the workspace.
+To watch a YouTube video as a live session, just **paste the link** anywhere on
+the workspace — no need to find a field.
+
+## Two modes
+
+| | Local file | YouTube link |
+| --- | --- | --- |
+| How to start | Drop / Open Video, then Start Live Session | Paste the link — starts immediately |
+| Network | **None.** Zero external requests | Streams from YouTube/Google |
+| Offline | Works | Needs a connection |
+| Anti-skip | Clamped in the playing engine | **Advisory** — YouTube's own controls remain |
+| Chapters, subtitles, PiP, bookmarks | Yes | Hidden (local-file features) |
+
+The first YouTube paste shows a one-time notice explaining the online behaviour
+before anything is fetched. Local files are never affected by it.
 
 ## What it supports
 
@@ -66,6 +86,7 @@ DOM. Swapping engines touches `PlaybackAdapter` + one line in `main.ts`.
 ## Features
 
 - Drag-and-drop or `Ctrl+O` local video, nothing uploaded.
+- **Paste a YouTube link** to run it as a live session (online mode — see below).
 - Simulated live session with `LIVE` / `PAUSED` / `COMPLETED` states.
 - **Anti-skip** forward-seek ceiling with a 1× speed lock.
 - **Bookmarks and timestamped notes** — `B` to bookmark, `N` to write a note;
@@ -114,15 +135,22 @@ DOM. Swapping engines touches `PlaybackAdapter` + one line in `main.ts`.
 
 ## Privacy
 
+**This section is about local-file mode, which is the default and keeps every
+original guarantee.** YouTube mode is the one exception and is disclosed up
+front: it loads Google's player, so Google may set cookies and see your IP, and
+the video is streamed rather than read from your disk.
+
 Video bytes are read through the File API and exposed to the player only as a
 `blob:` object URL, revoked on replace and on dispose. There is no upload
 endpoint, no storage of video, and no telemetry. The automated test asserts that
-**zero non-GET requests** occur during a full session.
+**zero non-GET requests** occur during a full local session.
 
-**The page makes zero external requests.** Tailwind CSS and both font families
-(Inter, JetBrains Mono) are bundled and self-hosted, so LiveX works completely
-**offline** once loaded — verified by a test that aborts every non-localhost
-request and still plays a full session.
+**In local-file mode the page makes zero external requests.** Tailwind CSS and
+both font families (Inter, JetBrains Mono) are bundled and self-hosted, so LiveX
+works completely **offline** once loaded — verified by a test that aborts every
+non-localhost request and still plays a full session. The YouTube API script is
+only ever injected after the user accepts the disclosure, so no Google code is
+fetched by a local session.
 
 ### What is saved locally
 
@@ -135,10 +163,13 @@ saved data**:
 2. **Bookmarks and notes** — timestamp plus your note text (capped at 500
    characters), keyed to the same file fingerprint.
 
-A small `localStorage` key remembers only which time-display mode you chose.
+Two small `localStorage` keys remember the time-display mode you chose and
+whether you have accepted the YouTube disclosure. Neither contains media.
 
 Subtitles and chapters are read per file and never stored. The playlist queue
-holds `File` handles for the current page only.
+holds `File` handles for the current page only. A YouTube video is not stored or
+cached by LiveX at all — only its id, in memory, for the session, and its title
+in the tab.
 
 **No video, audio, frame or thumbnail data is ever written to disk.** Files are
 identified by a `name::size::duration` fingerprint, not by content; the test
@@ -158,39 +189,63 @@ requests. This guards against emitting a build that renders as an unstyled page.
 
 ## Tests
 
+The Playwright config starts Vite for you, so there is no separate terminal:
+
 ```bash
-npm run dev            # in one terminal
-npm test               # in another (Playwright, Chromium)
+npm run test:unit      # Vitest, pure logic — milliseconds
+npm test               # full browser suite (Playwright + Chromium)
+npm run test:features  # Part 1 features only
+npm run test:features2 # Part 2 features only
+npm run test:all       # unit, then browser
+npm run audit          # fixture/doc drift + DOM-id wiring
 ```
 
-Two suites:
+Also:
 
-- `npm test` — 37 checks: compatibility matrix, session state machine, anti-skip,
-  the 1× lock, completion semantics and privacy.
-- `npm run test:features` — 36 checks covering history, bookmarks/notes, the
-  keyboard map, dialogs, picture-in-picture and time display modes.
-- `npm run test:features2` — 69 checks covering the integrity report, resume,
-  focus mode, playlist, chapters, subtitles and analytics.
+- `npm run verify:youtube` — drives a pasted YouTube link end to end in a real
+  Chromium (disclosure → embed → playback → pause/resume → back to a local
+  file). It needs to launch a browser, so run it outside a restricted sandbox.
+  It exits `2` rather than `1` when it cannot launch, so "not verified" is never
+  confused with "verified broken".
+
+Four suites:
+
+- `npm run test:unit` — Vitest: `MediaProbe` against the real fixtures,
+  `SessionState` transition pairs, `PlaybackErrors` mappings, `formatTime` edge
+  cases, plus chapters, subtitles, analytics and the session manager.
+- `npm test` runs `tests/e2e/livex.spec.ts` — session state machine, anti-skip,
+  the 1× lock, completion semantics, the compatibility matrix, offline behaviour
+  and privacy.
+- `tests/e2e/features.spec.ts` — the Part 1 and Part 2 feature checks (37 + 69),
+  whose assertion bodies live in `tests/e2e/suites/` and are imported by the spec.
 - `npm run verify` — build, then verify the output over http **and** `file://`.
 
 Fixtures are generated with ffmpeg and live in `tests/fixtures/`.
 
-To run the same suite against the production bundle:
+To run the same browser suite against the production bundle, set
+`LIVEX_TARGET=prod` (the config then builds, serves `dist/` on 4173 and sets
+`VITE_LIVEX_TEST_HOOKS=1`):
 
 ```bash
-VITE_LIVEX_TEST_HOOKS=1 npm run build   # exposes window.__livex for tests
-npm run preview                          # http://localhost:4173
-LIVEX_URL=http://localhost:4173/ npm test
+LIVEX_TARGET=prod npm test
 ```
 
 The test hook is tree-shaken out of normal builds.
+
+`node tools/audit-compatibility.mjs` cross-checks that every fixture is both
+asserted in the spec and documented in `docs/COMPATIBILITY.md`.
 
 ## Docs
 
 - [docs/UPGRADE-AUDIT.md](docs/UPGRADE-AUDIT.md) — what changed and why
 - [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) — measured format matrix
 - [docs/FEASIBILITY-WASM.md](docs/FEASIBILITY-WASM.md) — why no wasm engine ships
-- [task.md](task.md) — original functional spec
+- [docs/YOUTUBE-MODE-PLAN.md](docs/YOUTUBE-MODE-PLAN.md) — YouTube mode design,
+  its terms/privacy constraints, and what it does not guarantee
+- [docs/TASK-SPEC.md](docs/TASK-SPEC.md) — original functional spec
+- [docs/TYPESCRIPT-PLAYBACK-UPGRADE-PLAN.md](docs/TYPESCRIPT-PLAYBACK-UPGRADE-PLAN.md) — TypeScript + playback upgrade plan
+- [CHANGELOG.md](CHANGELOG.md) — version history
+- [CONTRIBUTING.md](CONTRIBUTING.md) — contribution guide
 
 ## Attribution
 

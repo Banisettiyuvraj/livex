@@ -1,37 +1,17 @@
 /**
- * Part 2 feature verification (Playwright).
+ * Part 2 feature checks (roadmap 2.1 - 2.6).
  *
- * Covers roadmap Part 2:
- *   2.1 playback integrity report    2.4 focus mode
- *   2.2 local analytics              2.5 local subtitles
- *   2.3 playlist + chapters          2.6 resume interrupted session
- *
- * Run: node tests/features2.mjs   (needs `npm run dev` on 5173)
+ * Shared by `npm run test:features2` and the Playwright spec.
  */
 
-import { chromium } from "playwright";
+export async function runPart2(page, fixture, record) {
+  const ok = record;
+  const p = page;
+  const errs = [];
+  page.on("pageerror", (e) => errs.push(e.message));
+  page.on("console", (m) => m.type() === "error" && errs.push(m.text()));
 
-const BASE = process.env.LIVEX_URL ?? "http://localhost:5173/";
-const FIXTURES = "tests/fixtures";
-
-const results = [];
-const ok = (name, cond, detail = "") => {
-  results.push({ name, ok: cond });
-  console.log(`${cond ? "PASS" : "FAIL"}  ${name}${detail ? "  — " + detail : ""}`);
-};
-
-const browser = await chromium.launch();
-const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-const page = await context.newPage();
-const errs = [];
-page.on("pageerror", (e) => errs.push(e.message));
-page.on("console", (m) => m.type() === "error" && errs.push(m.text()));
-const fx = (n) => `${process.cwd()}/${FIXTURES}/${n}`;
-const p = page;
-const b = browser;
-
-await page.goto(BASE, { waitUntil: "load" });
-await page.waitForTimeout(1000);
+  const fx = (name) => fixture(name);
 
 /* ================================================================== */
 /* 2.1 / 2.4 / 2.6 */
@@ -336,17 +316,6 @@ await p.setInputFiles("#video-input", fx("h264-aac.mp4"));
 await p.waitForTimeout(1500);
 ok("chapter bar hidden when no chapters", !(await p.locator("#chapter-bar").isVisible()));
 
-ok("no page errors across the whole run", errs.length === 0, errs.slice(0, 3).join(" | "));
 
-await browser.close();
-
-const failed = results.filter((r) => !r.ok);
-const total = results.length;
-console.log("");
-console.log(`${total - failed.length}/${total} checks passed`);
-if (failed.length > 0) {
-  console.log("");
-  console.log("Failures:");
-  for (const f of failed) console.log(" - " + f.name);
-  process.exitCode = 1;
+  record("no page errors", errs.length === 0, errs.slice(0, 2).join(" | "));
 }

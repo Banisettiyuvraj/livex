@@ -11,7 +11,7 @@
 | OS | Windows 11 x64 |
 | Engine | Native `HTMLVideoElement` (`BrowserVideoAdapter`) |
 | Fixtures | `tests/fixtures/*` — generated with ffmpeg 9.0.2, 320×240, ~6 s |
-| Harness | `node tests/e2e.mjs` (Playwright) |
+| Harness | `npm test` (Playwright, Chromium) |
 
 > Chromium headless does **not** include HEVC. Desktop Chrome/Edge on Windows
 > usually do (via the OS Media Foundation decoder), and Safari supports HEVC.
@@ -81,7 +81,11 @@ That is why `canPlayType` is treated as a hint, never as the final verdict.
 ## How to add a row
 
 1. Generate a fixture: `ffmpeg -i input ... tests/fixtures/<name>`.
-2. Add it to `MATRIX` in `tests/e2e.mjs` with `expect: "play" | "fail" | "either"`.
-3. Add the matching `expect:` entry to `E2E_EXPECTATIONS` and run
-   `node tests/e2e.mjs` with `npm run dev` running.
+2. Add it to `MATRIX` in `tests/e2e/livex.spec.ts` with
+   `expect: "play" | "fail" | "either"`.
+3. Run `npm test` (the Playwright `webServer` starts Vite for you — no manual
+   `npm run dev` step).
 4. Update this table with the measured outcome and browser/OS.
+
+`node tools/audit-compatibility.mjs` checks that every fixture is both asserted
+in the spec and documented here, so this table cannot silently drift.

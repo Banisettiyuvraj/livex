@@ -4,6 +4,7 @@ dist/
 *.log
 
 # Test artefacts
+test-results/
 tests/shot-*.png
 tests/_*.mjs
 tests/build-*.png

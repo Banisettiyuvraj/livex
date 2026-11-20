@@ -22,6 +22,7 @@ import { AnalyticsService } from "../session/AnalyticsService";
 import { readChapters, type Chapter } from "../files/ChapterReader";
 import type { Annotation, HistoryEntry } from "../files/LocalMetadataStore";
 import { PlaybackError } from "../playback/PlaybackErrors";
+import { firstYouTubeSource } from "../files/YouTubeSource";
 import { formatFileSize, formatStretch, formatTime } from "./format";
 
 function el<T extends HTMLElement>(id: string): T {
@@ -39,6 +40,11 @@ export interface WorkspaceUIOptions {
   readyVideoSlot: HTMLElement;
   history: SessionHistoryService;
   annotations: AnnotationService;
+  /**
+   * Swap the playback engine. Supplied by the composition root (`main.ts`) so
+   * the UI never constructs an engine itself — it only asks for one.
+   */
+  onEngineChange?: (engine: "local" | "youtube") => void;
 }
 
 /** How the elapsed/total readout is formatted (feature 1.6). */
@@ -50,9 +56,28 @@ const MIN_RESUME_SECONDS = 5;
 /** ...or within this fraction of it, so short clips do not nag. */
 const MIN_RESUME_FRACTION = 0.1;
 
+/**
+ * One-time acknowledgement that YouTube mode is online. This is a privacy
+ * disclosure, not a preference: local-file mode keeps every existing guarantee,
+ * and the user should know this mode is different before it loads Google code.
+ */
+const YOUTUBE_CONSENT_KEY = "livex.youtubeConsent";
+
+/** Accurate error headings — one static title was wrong for most failures. */
+const ERROR_HEADINGS: Record<PlaybackErrorDetails["code"], string> = {
+  "unsupported-format": "Video Unavailable",
+  "unsupported-codec": "Unsupported Video Format",
+  "decode-failed": "Cannot Play This Video",
+  "network-failed": "Connection Lost",
+  aborted: "Playback Stopped",
+  "no-file": "No Video Selected",
+  "invalid-state": "Playback Stopped",
+  "fullscreen-failed": "Fullscreen Unavailable",
+  unknown: "Playback Stopped",
+};
+
 export class WorkspaceUI {
   private readonly manager: SessionManager;
-  private readonly adapter: PlaybackAdapter;
   private readonly files: LocalFileManager;
   private readonly activeVideoSlot: HTMLElement;
   private readonly readyVideoSlot: HTMLElement;
@@ -64,6 +89,15 @@ export class WorkspaceUI {
 
   private readonly history: SessionHistoryService;
   private readonly annotations: AnnotationService;
+  private readonly onEngineChange?: (engine: "local" | "youtube") => void;
+
+  /**
+   * The engine that is active *now*. Always read through the manager: caching
+   * it here would leave the UI poking a disposed adapter after an engine swap.
+   */
+  private get adapter(): PlaybackAdapter {
+    return this.manager.getAdapter();
+  }
   private readonly playlist = new PlaylistService();
   private readonly subtitles = new SubtitleService();
   private analytics: AnalyticsService | null = null;
@@ -74,11 +108,15 @@ export class WorkspaceUI {
   private pendingResume: number | null = null;
   private focusMode = false;
   private focusClockTimer: number | null = null;
+  /** True while the YouTube embed owns the video slot. */
+  private youtubeMode = false;
+  /** A validated link waiting on the one-time online-mode disclosure. */
+  private pendingYouTubeInput: string | null = null;
 
   constructor(options: WorkspaceUIOptions) {
     this.manager = options.manager;
-    this.adapter = options.adapter;
     this.files = options.files;
+    this.onEngineChange = options.onEngineChange;
     this.history = options.history;
     this.annotations = options.annotations;
     this.analytics = new AnalyticsService(options.history.store);
@@ -102,6 +140,7 @@ export class WorkspaceUI {
 
     this.bindManager();
     this.bindDragAndDrop();
+    this.bindYouTubePaste();
     this.bindFilePickers();
     this.bindSessionButtons();
     this.bindPlaybackControls();
@@ -198,6 +237,13 @@ export class WorkspaceUI {
   private render(state: SessionState): void {
     const keys: SessionState[] = ["idle", "ready", "live", "paused", "completed", "error"];
     const visible = new Set<HTMLElement>();
+
+    // Leaving the error screen must not leave its message behind, or the next
+    // successful load inherits a stale failure note.
+    if (state !== "error") {
+      const errorText = document.getElementById("error-message-text");
+      if (errorText) errorText.textContent = "";
+    }
 
     // `live` and `paused` share the active screen.
     const screen = this.screens[state];
@@ -338,6 +384,17 @@ export class WorkspaceUI {
    * active session frame. Keeps exactly one player instance alive (task.md).
    */
   private syncVideoSlot(state: SessionState): void {
+    // The YouTube embed owns the slot in that mode; the <video> element stays
+    // parked in the ready slot so the native engine keeps one instance alive.
+    if (this.youtubeMode) {
+      this.video.classList.add("hidden");
+      if (this.video.parentElement !== this.readyVideoSlot) {
+        this.readyVideoSlot.appendChild(this.video);
+      }
+      return;
+    }
+    this.video.classList.remove("hidden");
+
     if (state === "ready") {
       if (this.video.parentElement !== this.readyVideoSlot) {
         this.readyVideoSlot.appendChild(this.video);
@@ -364,11 +421,21 @@ export class WorkspaceUI {
     pausedBadge.classList.toggle("hidden", !isPaused);
     pauseBtn.classList.toggle("hidden", !isLive);
     resumeBtn.classList.toggle("hidden", !isPaused);
+
+    // Make the engine obvious: an embedded YouTube video is not a local file.
+    const chip = document.getElementById("source-chip");
+    if (chip) {
+      const isYouTube = this.isYouTubeEngine();
+      chip.classList.toggle("hidden", !isYouTube);
+      if (isYouTube) chip.textContent = "YouTube";
+    }
   }
 
   private syncSessionButtons(_state: SessionState): void {
     const metadata = this.manager.getSnapshot().metadata;
     if (!metadata) return;
+    // YouTube mode: the embed's own controls drive transport, so our local
+    // start/pause chrome is hidden by CSS (.youtube-mode) rather than here.
 
     const summary = `${metadata.fileName} · ${formatFileSize(metadata.fileSize)}`;
     if (summary === this.lastFileSummary) return;
@@ -471,9 +538,269 @@ export class WorkspaceUI {
   }
 
   private showError(details: PlaybackErrorDetails): void {
+    this.setErrorHeading(details.code);
     el("error-message-text").textContent = details.hint
       ? `${details.message} ${details.hint}`
       : details.message;
+  }
+
+  /**
+   * The error screen used to say "Unsupported Video Format" for every failure,
+   * which is simply wrong for a network drop or an embed that refused to load.
+   * Name the actual problem.
+   */
+  private setErrorHeading(code: PlaybackErrorDetails["code"]): void {
+    const heading = document.getElementById("error-heading");
+    if (!heading) return;
+    heading.textContent = ERROR_HEADINGS[code] ?? "Playback Stopped";
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* YouTube links (docs/YOUTUBE-MODE-PLAN.md)                        */
+  /* ---------------------------------------------------------------- */
+
+  /** True when the active engine is the YouTube embed rather than a local file. */
+  private isYouTubeEngine(): boolean {
+    return this.youtubeMode;
+  }
+
+  /**
+   * Bind every way a link can arrive: a paste anywhere on the workspace, a
+   * paste (or typed URL + Enter) in the idle field, and the explicit "Use link"
+   * button. Typing targets are ignored except the YouTube field itself, so
+   * pasting into the note composer is never hijacked.
+   */
+  private bindYouTubePaste(): void {
+    const onPaste = (event: ClipboardEvent): void => {
+      const target = event.target;
+      const isYouTubeField = target instanceof HTMLElement && target.id === "youtube-input";
+      if (!isYouTubeField && this.isTypingTarget(target)) return;
+
+      const text = event.clipboardData?.getData("text") ?? "";
+      if (!text.trim()) return;
+
+      const parsed = firstYouTubeSource(text);
+      // Only take over the paste when it actually contains a YouTube link;
+      // anything else is left for the browser to handle normally.
+      if (!parsed.ok) return;
+      event.preventDefault();
+
+      if (isYouTubeField && target instanceof HTMLInputElement) target.value = text.trim();
+      void this.startYouTubeFromInput(text);
+    };
+
+    document.addEventListener("paste", onPaste);
+    window.addEventListener("paste", onPaste);
+    this.cleanups.push(() => {
+      document.removeEventListener("paste", onPaste);
+      window.removeEventListener("paste", onPaste);
+    });
+
+    const input = document.getElementById("youtube-input");
+    if (input instanceof HTMLInputElement) {
+      const onKeyDown = (event: KeyboardEvent): void => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        void this.startYouTubeFromInput(input.value);
+      };
+      input.addEventListener("keydown", onKeyDown);
+      // `change` fires when an automated test (or a browser autofill) puts a
+      // value in without a real paste, so the same path stays testable.
+      const onChange = (): void => {
+        if (input.value.trim() !== "") void this.startYouTubeFromInput(input.value);
+      };
+      input.addEventListener("change", onChange);
+      this.cleanups.push(() => {
+        input.removeEventListener("keydown", onKeyDown);
+        input.removeEventListener("change", onChange);
+      });
+    }
+
+    const useBtn = document.getElementById("youtube-use-btn");
+    if (useBtn) {
+      const onClick = (): void => {
+        const field = document.getElementById("youtube-input");
+        void this.startYouTubeFromInput(field instanceof HTMLInputElement ? field.value : "");
+      };
+      useBtn.addEventListener("click", onClick);
+      this.cleanups.push(() => useBtn.removeEventListener("click", onClick));
+    }
+
+    const pasteBtn = document.getElementById("youtube-paste-btn");
+    if (pasteBtn) {
+      const onClick = (): void => {
+        void this.pasteFromClipboard();
+      };
+      pasteBtn.addEventListener("click", onClick);
+      this.cleanups.push(() => pasteBtn.removeEventListener("click", onClick));
+    }
+
+    this.bindYouTubeConsentDialog();
+  }
+
+  /** Explicit button path — the browser asks for clipboard permission here. */
+  private async pasteFromClipboard(): Promise<void> {
+    try {
+      const text = await navigator.clipboard.readText();
+      const field = document.getElementById("youtube-input");
+      if (field instanceof HTMLInputElement) field.value = text.trim();
+      await this.startYouTubeFromInput(text);
+    } catch {
+      this.showNotice("Press Ctrl+V to paste the link — the browser blocked clipboard access.");
+    }
+  }
+
+  private bindYouTubeConsentDialog(): void {
+    const dialog = document.getElementById("youtube-consent");
+    if (!(dialog instanceof HTMLDialogElement)) return;
+
+    const confirm = document.getElementById("youtube-consent-continue");
+    if (confirm) {
+      const onClick = (): void => {
+        this.rememberYouTubeConsent();
+        dialog.close();
+        const field = document.getElementById("youtube-input");
+        void this.startYouTubeFromInput(field instanceof HTMLInputElement ? field.value : "");
+      };
+      confirm.addEventListener("click", onClick);
+      this.cleanups.push(() => confirm.removeEventListener("click", onClick));
+    }
+
+    const cancel = document.getElementById("youtube-consent-cancel");
+    if (cancel) {
+      const onClick = (): void => {
+        dialog.close();
+        this.pendingYouTubeInput = null;
+      };
+      cancel.addEventListener("click", onClick);
+      this.cleanups.push(() => cancel.removeEventListener("click", onClick));
+    }
+  }
+
+  private hasYouTubeConsent(): boolean {
+    try {
+      return window.localStorage.getItem(YOUTUBE_CONSENT_KEY) === "1";
+    } catch {
+      // Storage blocked: treat as "ask every time" rather than assuming consent.
+      return false;
+    }
+  }
+
+  private rememberYouTubeConsent(): void {
+    try {
+      window.localStorage.setItem(YOUTUBE_CONSENT_KEY, "1");
+    } catch {
+      /* a blocked storage API just means we ask again next time */
+    }
+  }
+
+  /** Validate first, then disclose on first use, then load. */
+  private async startYouTubeFromInput(rawInput: string): Promise<void> {
+    const parsed = firstYouTubeSource(rawInput);
+    if (!parsed.ok) {
+      // Nothing loaded yet: a bad link should not blow away the workspace.
+      if (this.manager.getState() === "idle") {
+        this.showNotice(parsed.reason);
+        return;
+      }
+      this.manager.reportFailure({
+        code: "unsupported-format",
+        message: parsed.reason,
+        hint: "Paste a link like https://www.youtube.com/watch?v=… or https://youtu.be/…",
+      });
+      return;
+    }
+
+    if (parsed.source.kind === "playlist") {
+      this.showNotice("That is a playlist link — open the video you want and copy its own link.");
+      return;
+    }
+
+    if (!this.hasYouTubeConsent()) {
+      this.pendingYouTubeInput = rawInput;
+      this.openYouTubeConsent(parsed.source.videoId);
+      return;
+    }
+
+    await this.performYouTubeLoad(rawInput);
+  }
+
+  private openYouTubeConsent(videoId: string): void {
+    const dialog = document.getElementById("youtube-consent");
+    const target = document.getElementById("youtube-consent-target");
+    if (target) target.textContent = videoId;
+    if (dialog instanceof HTMLDialogElement) {
+      dialog.showModal();
+      return;
+    }
+    // No dialog in the markup: proceed rather than dead-end the feature.
+    this.rememberYouTubeConsent();
+    const input = this.pendingYouTubeInput ?? "";
+    this.pendingYouTubeInput = null;
+    void this.performYouTubeLoad(input);
+  }
+
+  private async performYouTubeLoad(input: string): Promise<void> {
+    this.pendingYouTubeInput = null;
+    this.pendingResume = null;
+
+    // Ask the composition root to attach the YouTube engine. It disposes the
+    // previous one, so a local session never keeps a stale player alive.
+    try {
+      this.onEngineChange?.("youtube");
+    } catch (error) {
+      this.showError(toDetails(error));
+      return;
+    }
+
+    // Own the slot before the engine writes into it.
+    this.setYouTubeMode(true);
+    if (this.video.parentElement !== this.readyVideoSlot) {
+      this.readyVideoSlot.appendChild(this.video);
+    }
+
+    this.showBusy(true);
+    try {
+      await this.manager.loadYouTube(input);
+      const title = this.manager.getSnapshot().metadata?.fileName ?? "YouTube video";
+      this.announce(`${title} loaded. Press Start Live Session to go live.`);
+    } catch (error) {
+      const details = toDetails(error);
+      this.showError(details);
+      // Drive the state machine so the error screen and state agree.
+      this.manager.reportFailure(details);
+    } finally {
+      this.showBusy(false);
+      this.render(this.manager.getState());
+    }
+  }
+
+  /** Toggle YouTube mode: our local-file chrome steps aside for the embed. */
+  private setYouTubeMode(active: boolean): void {
+    if (this.youtubeMode === active) return;
+    this.youtubeMode = active;
+    document.body.classList.toggle("youtube-mode", active);
+  }
+
+  /** Reveal the local-file controls again and drop the embed. */
+  private clearYouTube(): void {
+    if (!this.youtubeMode) return;
+    this.youtubeMode = false;
+    document.body.classList.remove("youtube-mode");
+    for (const host of document.querySelectorAll(".livex-yt-host")) host.remove();
+  }
+
+  private showBusy(active: boolean): void {
+    const node = document.getElementById("youtube-busy");
+    if (node) node.classList.toggle("hidden", !active);
+  }
+
+  /** A quiet inline message for input problems, with no session-state change. */
+  private showNotice(message: string): void {
+    const node = document.getElementById("youtube-hint");
+    if (!node) return;
+    node.textContent = message;
+    node.classList.remove("hidden");
   }
 
   /* ---------------------------------------------------------------- */
@@ -565,10 +892,21 @@ export class WorkspaceUI {
 
   /** Probe → load → ready, with friendly failures at each step. */
   private async handleFile(file: File): Promise<void> {
+    // Choosing a local file leaves YouTube mode entirely: the embed is removed
+    // and the native <video> takes the slot back.
+    this.clearYouTube();
+
     const state = this.manager.getState();
     if (state === "live" || state === "paused") {
       // Replacing a loaded video stops the current session (task.md Phase 5).
       this.adapter.pause();
+    }
+
+    // Back to the native engine for local files.
+    try {
+      this.onEngineChange?.("local");
+    } catch {
+      /* the native engine is always present, so this should not fail */
     }
 
     try {
@@ -790,6 +1128,10 @@ export class WorkspaceUI {
 
       const state = this.manager.getState();
       const active = state === "live" || state === "paused";
+
+      // In YouTube mode the embed owns keyboard transport, so we do not fight
+      // it. Escape and the dialogs stay available via their own handlers.
+      if (this.youtubeMode && !event.metaKey && !event.ctrlKey) return;
 
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "o") {
         event.preventDefault();

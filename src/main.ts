@@ -8,6 +8,7 @@
 
 import "./styles/app.css";
 import { BrowserVideoAdapter } from "./playback/BrowserVideoAdapter";
+import { YouTubeAdapter } from "./playback/YouTubeAdapter";
 import { PlaybackCapabilityDetector } from "./playback/PlaybackCapabilities";
 import { LocalFileManager } from "./files/LocalFileManager";
 import { SessionManager } from "./session/SessionManager";
@@ -35,6 +36,11 @@ function boot(): void {
   const files = new LocalFileManager(detector);
   const manager = new SessionManager(adapter);
 
+  // YouTube is a second, explicitly online engine (docs/YOUTUBE-MODE-PLAN.md).
+  // It is built once and attached only when a link is pasted, so the local-file
+  // path never loads a byte of Google code.
+  const youtube = new YouTubeAdapter(activeSlot);
+
   // Metadata persistence (history + notes). One store instance is shared so
   // both features read the same IndexedDB connection.
   const metadataStore = new LocalMetadataStore();
@@ -49,6 +55,10 @@ function boot(): void {
     readyVideoSlot: readySlot,
     history,
     annotations,
+    // The one place that decides which engine a session runs on.
+    onEngineChange: (engine) => {
+      manager.setAdapter(engine === "youtube" ? youtube : adapter);
+    },
   });
 
   window.addEventListener("beforeunload", () => ui.dispose());
@@ -63,7 +73,7 @@ function boot(): void {
   }
 
   // Test hook. Exposed when running under Vite dev, or when a build is
-  // explicitly made with VITE_LIVEX_TEST_HOOKS=1 (used by tests/e2e.mjs to
+  // explicitly made with VITE_LIVEX_TEST_HOOKS=1 (used by the Playwright suite to
   // verify the production bundle). Never enabled in a normal production build.
   const testHooks = import.meta.env.DEV || import.meta.env.VITE_LIVEX_TEST_HOOKS === "1";
   if (testHooks) {
