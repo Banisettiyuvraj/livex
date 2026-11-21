@@ -41,6 +41,13 @@ import {
 /* Minimal typings for the bits of the YT namespace we use             */
 /* ------------------------------------------------------------------ */
 
+interface YTCaptionTrack {
+  languageCode?: string;
+  languageName?: string;
+  kind?: string;
+  is_default?: boolean;
+}
+
 interface YTPlayerLike {
   playVideo(): void;
   pauseVideo(): void;
@@ -59,6 +66,7 @@ interface YTPlayerLike {
   loadModule?(moduleName: string): void;
   unloadModule?(moduleName: string): void;
   setOption?(module: string, option: string, value: unknown): void;
+  getOption?(module: string, option: string): unknown;
   /** Used to rebuild the player at a position after a transient failure. */
   loadVideoById?(options: { videoId: string; startSeconds?: number }): void;
   getVideoData?(): { title?: string; video_id?: string };
@@ -83,6 +91,7 @@ interface YTNamespace {
       events?: {
         onReady?: (event: YTPlayerEvent) => void;
         onStateChange?: (event: YTPlayerEvent) => void;
+        onApiChange?: (event: YTPlayerEvent) => void;
         onError?: (event: YTPlayerEvent) => void;
       };
     },
@@ -219,6 +228,8 @@ export class YouTubeAdapter implements PlaybackAdapter {
    * is the only thing that turns them on.
    */
   private captionsEnabled = false;
+  /** Pending retry while the caption module finishes loading. */
+  private captionRetry: number | null = null;
 
   private poll: number | null = null;
   private disposed = false;
@@ -288,6 +299,7 @@ export class YouTubeAdapter implements PlaybackAdapter {
     // Every new video starts with captions off; the embed's own default may be
     // on because of the viewer's YouTube settings.
     this.captionsEnabled = false;
+    this.clearCaptionRetry();
 
     // The IFrame API drops the `origin` parameter when the page has no http(s)
     // origin (`file://`), and YouTube then refuses to talk to the player. Say so
@@ -442,7 +454,13 @@ export class YouTubeAdapter implements PlaybackAdapter {
         const player = await this.createPlayer(yt, frameId, host, token, () => {
           adopted = true;
         });
-        if (token === this.loadToken && !this.player) this.player = player;
+        if (token === this.loadToken && !this.player) {
+          this.player = player;
+          // `cc_load_policy` makes YouTube fetch caption data for the video;
+          // hide any caption track it auto-selected so captions stay off until
+          // the user presses CC.
+          if (!this.captionsEnabled) this.applyCaptions(false);
+        }
         return player;
       } catch (error) {
         lastError = error;
@@ -585,6 +603,10 @@ export class YouTubeAdapter implements PlaybackAdapter {
           // Playback is driven by our own chrome through the JS API.
           controls: 0,
           disablekb: 1,
+          // Ask YouTube to load caption data with the video (not to show it).
+          // Without this the caption module can be loaded but has no data to
+          // render, which is why the CC button appeared to do nothing.
+          cc_load_policy: 1,
           fs: 0,
           iv_load_policy: 3,
           autoplay: 0,
@@ -596,6 +618,11 @@ export class YouTubeAdapter implements PlaybackAdapter {
             adopt();
           },
           onStateChange: (event) => this.handleStateChange(event.data ?? -1),
+          // Fired when a module (the caption module, for us) finishes loading
+          // or unloading; track selection must wait for it.
+          onApiChange: () => {
+            if (this.captionsEnabled) this.selectCaptionTrack(0);
+          },
           onError: (event) => {
             const code = event.data ?? 0;
             if (!ready) {
@@ -878,18 +905,74 @@ export class YouTubeAdapter implements PlaybackAdapter {
   private applyCaptions(enabled: boolean): void {
     const player = this.player;
     if (!player) return;
+    this.clearCaptionRetry();
     try {
       if (enabled) {
-        // Re-load the module; YouTube then shows the default/auto track.
+        // Loading the module only creates the renderer. A track must then be
+        // selected explicitly, or YouTube shows nothing.
         player.loadModule?.("captions");
+        this.selectCaptionTrack(0);
       } else {
-        // Clearing the track covers both uploaded and auto-generated captions;
-        // unloading the module removes the renderer that YouTube auto-starts.
-        player.setOption?.("captions", "track", {});
+        // Unloading hides the renderer while leaving the selected track and
+        // its data in place. Clearing the track instead (`setOption` with an
+        // empty object) hides it once but leaves it unable to render again
+        // when CC is pressed later in the same player.
         player.unloadModule?.("captions");
       }
     } catch {
       // Caption support varies by video; never let it break playback.
+    }
+  }
+
+  /**
+   * Pick a real track and hand its language code to the player. The track list
+   * is not available until the caption module has loaded, so this retries a
+   * few times (and is also called again from `onApiChange`).
+   */
+  private selectCaptionTrack(attempt: number): void {
+    this.clearCaptionRetry();
+    const player = this.player;
+    if (!player || !this.captionsEnabled) return;
+
+    try {
+      const current = player.getOption?.("captions", "track") as
+        | YTCaptionTrack
+        | null
+        | undefined;
+      // Already selected (loadModule may have restored it): nothing to do.
+      if (current?.languageCode) return;
+
+      const listed = player.getOption?.("captions", "tracklist");
+      const tracks = Array.isArray(listed) ? (listed as YTCaptionTrack[]) : [];
+      const preferred =
+        tracks.find((track) => track.is_default) ??
+        tracks.find((track) => track.kind === "asr") ??
+        tracks[0];
+      if (preferred?.languageCode) {
+        player.setOption?.("captions", "track", {
+          languageCode: preferred.languageCode,
+        });
+        // Selecting a track after the module loaded on demand can leave the
+        // renderer without data; this documented option refetches it.
+        player.setOption?.("captions", "reload", true);
+        return;
+      }
+    } catch {
+      // Fall through to the retry; some videos expose no caption module.
+    }
+
+    if (attempt < 8) {
+      this.captionRetry = window.setTimeout(
+        () => this.selectCaptionTrack(attempt + 1),
+        250,
+      );
+    }
+  }
+
+  private clearCaptionRetry(): void {
+    if (this.captionRetry !== null) {
+      window.clearTimeout(this.captionRetry);
+      this.captionRetry = null;
     }
   }
 
@@ -948,6 +1031,7 @@ export class YouTubeAdapter implements PlaybackAdapter {
     // is mid-initialisation, so the iframe removal is what actually guarantees
     // no audio survives a teardown.
     this.stopAudio();
+    this.clearCaptionRetry();
     this.overlay = null;
     this.status = "empty";
     this.captionsEnabled = false;

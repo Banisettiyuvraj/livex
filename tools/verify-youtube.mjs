@@ -242,15 +242,41 @@ try {
   );
 
   await cc.click();
-  await page.waitForTimeout(600);
-  const captionsOn = await page.evaluate(() => ({
-    state: window.__livex.manager.getAdapter().areCaptionsEnabled?.() ?? false,
-    pressed: document.getElementById("subtitle-btn").getAttribute("aria-pressed"),
-  }));
+  await page.waitForTimeout(1_200);
+  const captionsOn = await page.evaluate(() => {
+    const adapter = window.__livex.manager.getAdapter();
+    const track = adapter.player?.getOption?.("captions", "track");
+    return {
+      state: adapter.areCaptionsEnabled?.() ?? false,
+      pressed: document.getElementById("subtitle-btn").getAttribute("aria-pressed"),
+      track: track && typeof track === "object" ? track : null,
+    };
+  });
   check(
-    "CC turns captions on",
-    captionsOn.state === true && captionsOn.pressed === "true",
+    "CC selects a caption track",
+    captionsOn.state === true &&
+      captionsOn.pressed === "true" &&
+      Boolean(captionsOn.track?.languageCode),
     JSON.stringify(captionsOn),
+  );
+
+  // Selecting a track is not the same as seeing captions: seek to a lyric and
+  // wait for YouTube to paint a caption segment inside the iframe.
+  await page.evaluate(() => window.__livex.manager.getAdapter().seek(22));
+  const ytFrame = page.frames().find((frame) => frame.url().includes("youtube"));
+  let captionSegments = 0;
+  let captionText = "";
+  for (let i = 0; i < 20 && captionSegments === 0; i += 1) {
+    await page.waitForTimeout(500);
+    if (!ytFrame) continue;
+    const segments = ytFrame.locator(".ytp-caption-segment");
+    captionSegments = await segments.count();
+    if (captionSegments > 0) captionText = (await segments.allInnerTexts()).join(" ");
+  }
+  check(
+    "captions actually render in the iframe",
+    captionSegments > 0,
+    captionText || "no caption segment",
   );
 
   await cc.click();

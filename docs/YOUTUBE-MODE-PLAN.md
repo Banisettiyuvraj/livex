@@ -1,11 +1,11 @@
 # LiveX — YouTube Mode: Implementation Plan
 
 **Status: IMPLEMENTED AND VERIFIED (v1.4).** Built, wired, and exercised in a
-real Chromium by `npm run verify:youtube` (31/31 checks: disclosure fires before
+real Chromium by `npm run verify:youtube` (32/32 checks: disclosure fires before
 any Google request, the embed loads the pasted id, playback advances, captions
-start off and the CC button toggles them, pause and resume reach the iframe
-player, a second paste replaces the player cleanly, and switching back to a
-local file restores the native engine). This document is
+start off and the CC button loads, selects and actually renders a caption
+track, pause and resume reach the iframe player, a second paste replaces the
+player cleanly, and switching back to a local file restores the native engine). This document is
 kept as the design record and as the place where the trade-offs are stated,
 because this feature changes two of LiveX's headline promises.
 

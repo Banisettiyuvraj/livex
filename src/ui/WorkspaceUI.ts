@@ -1339,7 +1339,7 @@ export class WorkspaceUI {
         marker.className = "progress-marker";
         marker.style.left = `${Math.min(100, (annotation.time / duration) * 100)}%`;
         marker.style.backgroundColor =
-          annotation.kind === "bookmark" ? "#a5a1f8" : "#6965db";
+          annotation.kind === "bookmark" ? "#fca5a5" : "#dc2626";
         markers.append(marker);
       }
     }
@@ -1398,7 +1398,7 @@ export class WorkspaceUI {
     const save = document.createElement("button");
     save.type = "submit";
     save.className =
-      "px-2 py-1 rounded-md bg-accent-purple hover:bg-[#7874e4] text-white text-[11px] font-medium shrink-0 focus-ring";
+      "px-2 py-1 rounded-md bg-accent-purple hover:bg-[#ef4444] text-white text-[11px] font-medium shrink-0 focus-ring";
     save.textContent = "Save";
 
     const cancel = document.createElement("button");

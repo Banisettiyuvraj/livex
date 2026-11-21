@@ -68,7 +68,7 @@ function boot(): void {
     // Developer console helper — capability matrix only, never file contents.
     console.info(
       "%cLiveX dev — native capability report",
-      "color:#a5a1f8",
+      "color:#fca5a5",
       detector.describeSupport(),
     );
   }
