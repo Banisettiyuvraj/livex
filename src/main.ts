@@ -55,6 +55,7 @@ function boot(): void {
     readyVideoSlot: readySlot,
     history,
     annotations,
+    detector,
     // The one place that decides which engine a session runs on.
     onEngineChange: (engine) => {
       manager.setAdapter(engine === "youtube" ? youtube : adapter);

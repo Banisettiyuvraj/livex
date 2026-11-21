@@ -200,7 +200,30 @@ const aboutOpen = await page.locator("#about-dialog").evaluate((el) => el.open);
 record("[1.4] About dialog opens", aboutOpen);
 const storageState = await page.locator("#about-storage-state").textContent();
 record("[1.4] About reports storage state", /Local storage: (on|unavailable)/.test(storageState ?? ""), storageState?.trim());
+
+// Capability report export (roadmap 4.7). The textarea is filled whether the
+// async clipboard succeeds or the manual-copy fallback is used.
+await page.click("#copy-capability-btn");
+await page.waitForTimeout(400);
+const reportText = await page.locator("#capability-report").inputValue();
+record(
+  "[4.7] About generates a capability report",
+  reportText.includes("LiveX device capability report") && reportText.includes("MP4"),
+  `${reportText.length} chars`,
+);
 await page.locator("#about-dialog .dialog-close").click();
+await page.waitForTimeout(250);
+
+// Keyboard entry point on the empty workspace (roadmap 4.5).
+const idleTile = await page.locator("#idle-browse-btn").evaluate((el) => ({
+  tag: el.tagName,
+  tabIndex: el.tabIndex,
+}));
+record(
+  "[4.5] idle drop tile is a focusable button",
+  idleTile.tag === "BUTTON" && idleTile.tabIndex === 0,
+  `${idleTile.tag} tabindex=${idleTile.tabIndex}`,
+);
 await page.waitForTimeout(250);
 
 /* ================================================================== */
@@ -249,8 +272,6 @@ if (recentVisible) {
 }
 
 record("no console errors across the whole run", errors.length === 0, errors.slice(0, 3).join(" | "));
-
-await browser.close();
 
 
 }

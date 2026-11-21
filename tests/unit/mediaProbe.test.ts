@@ -83,6 +83,30 @@ describe("probeLocalFile — Matroska codecs are normalised", () => {
   });
 });
 
+describe("probeLocalFile — AVI codecs come from hdrl/strf", () => {
+  it("names MPEG-4 Part 2 video and MP3 audio", async () => {
+    const probe = await probeLocalFile(fixture("mpeg4.avi"));
+    expect(probe.videoCodec).toBe("MPEG-4 Part 2");
+    expect(probe.audioCodec).toBe("MP3");
+  });
+});
+
+describe("probeLocalFile — MPEG-TS codecs come from the PMT", () => {
+  it("names MPEG-2 video and MPEG audio", async () => {
+    const probe = await probeLocalFile(fixture("mpeg2.ts"));
+    expect(probe.videoCodec).toBe("MPEG-2");
+    expect(probe.audioCodec).toBe("MPEG audio");
+  });
+});
+
+describe("probeLocalFile — MPEG-PS codecs come from the sequence header", () => {
+  it("names MPEG-2 video and MPEG audio", async () => {
+    const probe = await probeLocalFile(fixture("mpeg2.mpg"));
+    expect(probe.videoCodec).toBe("MPEG-2");
+    expect(probe.audioCodec).toBe("MPEG audio");
+  });
+});
+
 describe("probeLocalFile — WebM codecs", () => {
   it("names VP9 and Opus", async () => {
     const probe = await probeLocalFile(fixture("vp9-opus.webm"));

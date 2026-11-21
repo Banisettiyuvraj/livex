@@ -46,13 +46,18 @@ record(
   !html.includes("crossorigin"),
 );
 
-const externalUrls = [...html.matchAll(/https?:\/\/[^"')\s]+/g)]
+// Vite inlines the app script into the HTML, and a URL *string* in JavaScript
+// (the on-demand YouTube API endpoint, say) is not a resource. Strip script
+// bodies so markup attributes and inline CSS are still checked, and let the
+// browser checks below prove the page actually fetches nothing external.
+const resourceHtml = html.replace(/<script\b[\s\S]*?<\/script>/gi, "");
+const externalUrls = [...resourceHtml.matchAll(/https?:\/\/[^"')\s]+/g)]
   .map((m) => m[0])
   .filter((u) => !u.startsWith("http://localhost"))
   // SVG/xlink namespaces are identifiers, never fetched.
   .filter((u) => !u.startsWith("http://www.w3.org/"));
 // A link href is fine (only followed on click); a resource URL is not.
-const resourceUrls = externalUrls.filter((u) => !html.includes(`href="${u}"`));
+const resourceUrls = externalUrls.filter((u) => !resourceHtml.includes(`href="${u}"`));
 record(
   "no external resource URLs in HTML",
   resourceUrls.length === 0,

@@ -169,17 +169,19 @@ try {
   // --- consent, then the real load -----------------------------------------
   if (dialogVisible) await page.click("#youtube-consent-continue");
 
-  let live = "timeout";
+  let loaded = "timeout";
   for (let i = 0; i < 60; i += 1) {
     const s = await state();
-    if (s === "live" || s === "error" || s === "paused") {
-      live = s;
+    if (s === "ready" || s === "error") {
+      loaded = s;
       break;
     }
     await page.waitForTimeout(500);
   }
 
-  check("a session starts from the pasted link", live === "live", `state=${live}`);
+  // Loading and starting are deliberately separate: the LIVE session must
+  // begin at 0:00 on the user's Start click, not while the embed is setting up.
+  check("a session loads from the pasted link", loaded === "ready", `state=${loaded}`);
 
   const iframe = page.locator(".livex-yt-host iframe").first();
   const iframeCount = await page.locator("iframe").count();
@@ -190,10 +192,24 @@ try {
     const src = await iframe.getAttribute("src");
     check("embed points at the pasted video", Boolean(src?.includes(VIDEO_ID)), src ?? "no src");
     check("embed is the cookie-reduced host", Boolean(src?.includes("youtube-nocookie")), src ?? "");
-    check("embed keeps YouTube's own controls", Boolean(src?.includes("controls=1")), src ?? "");
+    check("embed hides YouTube's own controls", Boolean(src?.includes("controls=0")), src ?? "");
     check("postMessage channel is enabled", Boolean(src?.includes("enablejsapi=1")), src ?? "");
     // The API requires an origin for the postMessage handshake.
     check("origin parameter is sent", Boolean(src?.includes("origin=")), src ?? "");
+  }
+
+  if (loaded === "ready") {
+    await page.click("#start-session-btn");
+    let live = "timeout";
+    for (let i = 0; i < 20; i += 1) {
+      const s = await state();
+      if (s === "live" || s === "error") {
+        live = s;
+        break;
+      }
+      await page.waitForTimeout(300);
+    }
+    check("Start begins the pasted session", live === "live", `state=${live}`);
   }
 
   const progress = await page.evaluate(() => window.__livex.manager.getProgress());
@@ -223,6 +239,40 @@ try {
   await page.click("#resume-btn");
   await page.waitForTimeout(900);
   check("resume returns to live", (await state()) === "live", await state());
+
+  // --- a second paste while live replaces the player cleanly --------------
+  // The same-engine swap must leave live/paused for idle, or the later ready
+  // transition is rejected and the old session stays on screen.
+  await page.evaluate((url) => {
+    const data = new DataTransfer();
+    data.setData("text/plain", url);
+    document.dispatchEvent(
+      new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }),
+    );
+  }, `https://youtu.be/${VIDEO_ID}`);
+
+  let reloaded = "timeout";
+  for (let i = 0; i < 60; i += 1) {
+    const s = await state();
+    if (s === "ready" || s === "error") {
+      reloaded = s;
+      break;
+    }
+    await page.waitForTimeout(500);
+  }
+  const afterRepaste = await page.evaluate(() => ({
+    iframes: document.querySelectorAll("iframe").length,
+    errorText: document.getElementById("error-message-text")?.textContent ?? "",
+    hosts: document.querySelectorAll(".livex-yt-host").length,
+  }));
+  check("a second paste reloads into ready", reloaded === "ready", `state=${reloaded} error="${afterRepaste.errorText}"`);
+  check("a second paste leaves exactly one player", afterRepaste.iframes === 1 && afterRepaste.hosts === 1, JSON.stringify(afterRepaste));
+
+  if (reloaded === "ready") {
+    await page.click("#start-session-btn");
+    await page.waitForTimeout(1200);
+    check("the replaced player starts", (await state()) === "live", await state());
+  }
 
   // --- local files must be unaffected --------------------------------------
   await page.setInputFiles("#video-input", join(ROOT, "tests", "fixtures", "h264-aac.mp4"));

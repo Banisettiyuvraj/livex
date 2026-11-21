@@ -163,6 +163,10 @@ function readCodecs(
       return readMatroskaCodecs(head);
     case "avi":
       return readAviCodecs(head);
+    case "mpeg-ts":
+      return readMpegTsCodecs(head);
+    case "mpeg-ps":
+      return readMpegPsCodecs(head);
     default:
       return { videoCodec: null, audioCodec: null };
   }
@@ -381,14 +385,367 @@ function normalizeMatroskaCodec(codecId: string | null): string | null {
   return table[exact] ?? exact;
 }
 
+/* ------------------------------------------------------------------ */
+/* AVI — RIFF hdrl / strl / strf                                       */
+/* ------------------------------------------------------------------ */
+
+interface AviStream {
+  type: string;
+  handler: string;
+  formatStart: number;
+  formatSize: number;
+}
+
+/**
+ * AVI stores the real codec ids in `hdrl → strl`:
+ *   - `strh.fccType` says video (`vids`) or audio (`auds`)
+ *   - `strf` holds a BITMAPINFOHEADER (`biCompression` fourcc) for video or a
+ *     WAVEFORMATEX (`wFormatTag`) for audio
+ * A printable-byte search over the file can easily match payload data, so only
+ * fall back to it when the structured header could not be read at all.
+ */
 function readAviCodecs(head: Uint8Array): {
   videoCodec: string | null;
   audioCodec: string | null;
 } {
+  const streams: AviStream[] = [];
+
+  const walk = (start: number, end: number): void => {
+    let offset = start;
+    while (offset + 8 <= end) {
+      const id = ascii(head, offset, offset + 4);
+      const size = readU32LE(head, offset + 4);
+      const dataStart = offset + 8;
+      const dataEnd = dataStart + size;
+      // The head window can cut the final chunk short; keep what we have.
+      if (dataEnd > end) break;
+
+      if (id === "LIST" && dataStart + 4 <= dataEnd) {
+        const listType = ascii(head, dataStart, dataStart + 4);
+        if (listType === "strl") {
+          const stream = readAviStrl(head, dataStart + 4, dataEnd);
+          if (stream) streams.push(stream);
+        } else {
+          walk(dataStart + 4, dataEnd);
+        }
+      }
+
+      // RIFF chunks are word-aligned: an odd size has one pad byte.
+      offset = dataEnd + (size & 1);
+    }
+  };
+  walk(12, head.length);
+
+  const video = streams.find((stream) => stream.type === "vids");
+  const audio = streams.find((stream) => stream.type === "auds");
+  const videoCodec = video ? aviVideoCodec(head, video) : null;
+  const audioCodec = audio ? aviAudioCodec(head, audio) : null;
+
+  // Unusual/truncated AVI: keep the old best-effort labels rather than nothing.
+  if (!videoCodec && !audioCodec) return readAviAsciiFallback(head);
+  return { videoCodec, audioCodec };
+}
+
+function readAviStrl(head: Uint8Array, start: number, end: number): AviStream | null {
+  let type = "";
+  let handler = "";
+  let formatStart = -1;
+  let formatSize = 0;
+
+  let offset = start;
+  while (offset + 8 <= end) {
+    const id = ascii(head, offset, offset + 4);
+    const size = readU32LE(head, offset + 4);
+    const dataStart = offset + 8;
+    if (dataStart + size > end) break;
+
+    if (id === "strh" && size >= 8) {
+      type = ascii(head, dataStart, dataStart + 4);
+      handler = ascii(head, dataStart + 4, dataStart + 8);
+    } else if (id === "strf") {
+      formatStart = dataStart;
+      formatSize = size;
+    }
+    offset = dataStart + size + (size & 1);
+  }
+
+  if (!type && formatStart < 0) return null;
+  return { type, handler, formatStart, formatSize };
+}
+
+const AVI_VIDEO_CODECS: Record<string, string> = {
+  FMP4: "MPEG-4 Part 2",
+  MP4V: "MPEG-4 Part 2",
+  MP4S: "MPEG-4 Part 2",
+  XVID: "MPEG-4 Part 2",
+  DIVX: "MPEG-4 Part 2",
+  DX50: "MPEG-4 Part 2",
+  DIV3: "MPEG-4 Part 2",
+  "3IV2": "MPEG-4 Part 2",
+  H264: "H.264",
+  X264: "H.264",
+  AVC1: "H.264",
+  DAVC: "H.264",
+  HEVC: "HEVC",
+  H265: "HEVC",
+  HVC1: "HEVC",
+  HEV1: "HEVC",
+  MJPG: "Motion JPEG",
+  JPEG: "Motion JPEG",
+  VP80: "VP8",
+  VP90: "VP9",
+  AV01: "AV1",
+  HFYU: "HuffYUV",
+  IV50: "Indeo 5",
+  IV41: "Indeo 4",
+  IV32: "Indeo 3",
+  "RGB ": "Uncompressed RGB",
+  DIB: "Uncompressed RGB",
+};
+
+function aviVideoCodec(head: Uint8Array, stream: AviStream): string | null {
+  // BITMAPINFOHEADER.biCompression sits at byte 16. Fall back to strh's
+  // fccHandler when the format block is too short (some old encoders).
+  let fourcc = stream.handler;
+  if (stream.formatStart >= 0 && stream.formatSize >= 20) {
+    const candidate = ascii(head, stream.formatStart + 16, stream.formatStart + 20);
+    if (isPrintableFourcc(candidate)) fourcc = candidate;
+  }
+  const trimmed = fourcc.trim();
+  if (!trimmed) return null;
+  return AVI_VIDEO_CODECS[trimmed.toUpperCase()] ?? (isPrintableFourcc(fourcc) ? trimmed : null);
+}
+
+const AVI_AUDIO_CODECS: Record<number, string> = {
+  0x0001: "PCM",
+  0x0003: "IEEE float",
+  0x0006: "A-law",
+  0x0007: "μ-law",
+  0x0050: "MP2",
+  0x0055: "MP3",
+  0x00ff: "AAC",
+  0x0161: "WMA",
+  0x0162: "WMA Pro",
+  0x2000: "AC-3",
+  0x2001: "DTS",
+  0x704f: "Opus",
+  0xf1ac: "FLAC",
+};
+
+function aviAudioCodec(head: Uint8Array, stream: AviStream): string | null {
+  if (stream.formatStart < 0 || stream.formatSize < 2) return null;
+  let tag = readU16LE(head, stream.formatStart);
+  // WAVE_FORMAT_EXTENSIBLE stores the real tag in the SubFormat GUID.
+  if (tag === 0xfffe && stream.formatSize >= 26) {
+    tag = readU16LE(head, stream.formatStart + 24);
+  }
+  return AVI_AUDIO_CODECS[tag] ?? null;
+}
+
+function readAviAsciiFallback(head: Uint8Array): {
+  videoCodec: string | null;
+  audioCodec: string | null;
+} {
   const text = ascii(head, 0, head.length);
-  const fourcc = text.includes("H264") ? "H.264" : text.includes("XVID") ? "Xvid" : text.includes("DIVX") ? "DivX" : text.includes("MJPG") ? "Motion JPEG" : null;
+  const fourcc = text.includes("H264")
+    ? "H.264"
+    : text.includes("XVID")
+      ? "MPEG-4 Part 2"
+      : text.includes("DIVX")
+        ? "MPEG-4 Part 2"
+        : text.includes("MJPG")
+          ? "Motion JPEG"
+          : null;
   const audio = text.includes("MP3") ? "MP3" : text.includes("AC3") ? "AC-3" : text.includes("PCM") ? "PCM" : null;
   return { videoCodec: fourcc, audioCodec: audio };
+}
+
+/* ------------------------------------------------------------------ */
+/* MPEG-TS — PAT → PMT                                                 */
+/* ------------------------------------------------------------------ */
+
+interface TsSection {
+  pid: number;
+  start: number;
+  length: number;
+  tableId: number;
+}
+
+/** Read the first section beginning in a transport packet (PUSI set). */
+function readTsSection(head: Uint8Array, packetStart: number, packetSize: number): TsSection | null {
+  const packetEnd = Math.min(head.length, packetStart + packetSize);
+  if (packetStart + 4 > packetEnd || head[packetStart] !== 0x47) return null;
+  // Payload-unit-start indicator: only this packet begins a new section.
+  if ((head[packetStart + 1]! & 0x40) === 0) return null;
+
+  const pid = ((head[packetStart + 1]! & 0x1f) << 8) | head[packetStart + 2]!;
+  const adaptation = (head[packetStart + 3]! >> 4) & 0x03;
+  let payload = packetStart + 4;
+  if ((adaptation & 0x02) !== 0) payload += 1 + head[payload]!;
+  if ((adaptation & 0x01) === 0 || payload + 3 > packetEnd) return null;
+
+  // `pointer_field` says where the section starts after any previous tail.
+  const sectionStart = payload + 1 + head[payload]!;
+  if (sectionStart + 3 > packetEnd) return null;
+
+  const tableId = head[sectionStart]!;
+  const length = ((head[sectionStart + 1]! & 0x0f) << 8) | head[sectionStart + 2]!;
+  // PAT/PMT sections are tiny; reject a wild length rather than misread.
+  if (length < 9 || length > 1021) return null;
+  return { pid, start: sectionStart, length, tableId };
+}
+
+const TS_STREAM_TYPES: Record<number, { name: string; kind: "video" | "audio" }> = {
+  0x01: { name: "MPEG-1", kind: "video" },
+  0x02: { name: "MPEG-2", kind: "video" },
+  0x10: { name: "MPEG-4 Part 2", kind: "video" },
+  0x1b: { name: "H.264", kind: "video" },
+  0x24: { name: "HEVC", kind: "video" },
+  0x03: { name: "MPEG audio", kind: "audio" },
+  0x04: { name: "MPEG audio", kind: "audio" },
+  0x0f: { name: "AAC", kind: "audio" },
+  0x11: { name: "AAC", kind: "audio" },
+  0x81: { name: "AC-3", kind: "audio" },
+  0x82: { name: "DTS", kind: "audio" },
+  0x87: { name: "E-AC-3", kind: "audio" },
+  0x8a: { name: "DTS", kind: "audio" },
+};
+
+function readMpegTsCodecs(head: Uint8Array): {
+  videoCodec: string | null;
+  audioCodec: string | null;
+} {
+  const packetSize = detectTsPacketSize(head);
+  if (!packetSize) return { videoCodec: null, audioCodec: null };
+
+  let pmtPid: number | null = null;
+  const sections: TsSection[] = [];
+  for (let offset = 0; offset + packetSize <= head.length; offset += packetSize) {
+    const section = readTsSection(head, offset, packetSize);
+    if (section) sections.push(section);
+  }
+
+  // PAT: program entries start after the 8-byte section header.
+  for (const section of sections) {
+    if (section.tableId !== 0x00) continue;
+    const end = section.start + 3 + section.length - 4; // drop CRC32
+    for (let entry = section.start + 8; entry + 4 <= end; entry += 4) {
+      const program = readU16BE(head, entry);
+      const pid = readU16BE(head, entry + 2) & 0x1fff;
+      if (program !== 0) {
+        pmtPid = pid;
+        break;
+      }
+    }
+    if (pmtPid !== null) break;
+  }
+
+  const pmt = pmtPid === null ? null : sections.find((s) => s.pid === pmtPid && s.tableId === 0x02);
+  if (!pmt) return { videoCodec: null, audioCodec: null };
+
+  let videoCodec: string | null = null;
+  let audioCodec: string | null = null;
+  const programInfoLength = readU16BE(head, pmt.start + 10) & 0x0fff;
+  const end = pmt.start + 3 + pmt.length - 4;
+  let entry = pmt.start + 12 + programInfoLength;
+  while (entry + 5 <= end) {
+    const streamType = head[entry]!;
+    const esInfoLength = readU16BE(head, entry + 3) & 0x0fff;
+    const mapped = TS_STREAM_TYPES[streamType];
+    if (mapped?.kind === "video" && !videoCodec) videoCodec = mapped.name;
+    if (mapped?.kind === "audio" && !audioCodec) audioCodec = mapped.name;
+    entry += 5 + esInfoLength;
+  }
+
+  return { videoCodec, audioCodec };
+}
+
+function detectTsPacketSize(head: Uint8Array): number | null {
+  // 188 is the standard; M2TS adds a 4-byte timestamp, TS-over-204 adds RS.
+  for (const size of [188, 192, 204]) {
+    if (head.length > size && head[0] === 0x47 && head[size] === 0x47) return size;
+  }
+  return head[0] === 0x47 ? 188 : null;
+}
+
+/* ------------------------------------------------------------------ */
+/* MPEG-PS — program stream map / sequence header                      */
+/* ------------------------------------------------------------------ */
+
+function readMpegPsCodecs(head: Uint8Array): {
+  videoCodec: string | null;
+  audioCodec: string | null;
+} {
+  let videoCodec: string | null = null;
+  let audioCodec: string | null = null;
+
+  // A program stream map names the elementary streams where the muxer wrote one.
+  const psm = findStartCode(head, 0xbc);
+  if (psm >= 0) {
+    const length = readU16BE(head, psm + 4);
+    const mapEnd = Math.min(head.length, psm + 6 + length);
+    // 1 byte flags, 2 bytes program info length, then that many descriptors.
+    let entry = psm + 9 + (readU16BE(head, psm + 7) & 0x0fff) + 2;
+    while (entry + 4 <= mapEnd) {
+      const streamType = head[entry]!;
+      const infoLength = readU16BE(head, entry + 2) & 0x0fff;
+      const mapped = TS_STREAM_TYPES[streamType];
+      if (mapped?.kind === "video" && !videoCodec) videoCodec = mapped.name;
+      if (mapped?.kind === "audio" && !audioCodec) audioCodec = mapped.name;
+      entry += 4 + infoLength;
+    }
+  }
+
+  // Without a PSM, the sequence header still separates MPEG-1 from MPEG-2.
+  if (!videoCodec) {
+    const sequence = findStartCode(head, 0xb3);
+    if (sequence >= 0) {
+      videoCodec = hasStartCodeNear(head, 0xb5, sequence + 4, sequence + 64) ? "MPEG-2" : "MPEG-1";
+    }
+  }
+
+  if (!audioCodec && hasMpegAudioStream(head)) audioCodec = "MPEG audio";
+  return { videoCodec, audioCodec };
+}
+
+/** First offset of a 00 00 01 <id> start code, or -1. */
+function findStartCode(buf: Uint8Array, id: number): number {
+  for (let i = 0; i + 4 <= buf.length; i += 1) {
+    if (buf[i] === 0x00 && buf[i + 1] === 0x00 && buf[i + 2] === 0x01 && buf[i + 3] === id) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function hasStartCodeNear(buf: Uint8Array, id: number, start: number, end: number): boolean {
+  const limit = Math.min(end, buf.length - 4);
+  for (let i = start; i <= limit; i += 1) {
+    if (buf[i] === 0x00 && buf[i + 1] === 0x00 && buf[i + 2] === 0x01 && buf[i + 3] === id) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** MPEG audio lives in elementary stream ids 0xC0–0xDF. */
+function hasMpegAudioStream(buf: Uint8Array): boolean {
+  for (let i = 0; i + 4 <= buf.length; i += 1) {
+    if (buf[i] === 0x00 && buf[i + 1] === 0x00 && buf[i + 2] === 0x01) {
+      const id = buf[i + 3]!;
+      if (id >= 0xc0 && id <= 0xdf) return true;
+    }
+  }
+  return false;
+}
+
+function isPrintableFourcc(value: string): boolean {
+  if (value.length !== 4) return false;
+  for (let i = 0; i < 4; i += 1) {
+    const code = value.charCodeAt(i);
+    if (code < 0x20 || code > 0x7e) return false;
+  }
+  return true;
 }
 
 /* ------------------------------------------------------------------ */
@@ -412,4 +769,21 @@ function readU32(buf: Uint8Array, offset: number): number {
     ((buf[offset + 2] ?? 0) << 8) |
     (buf[offset + 3] ?? 0)
   ) >>> 0;
+}
+
+function readU32LE(buf: Uint8Array, offset: number): number {
+  return (
+    (buf[offset] ?? 0) |
+    ((buf[offset + 1] ?? 0) << 8) |
+    ((buf[offset + 2] ?? 0) << 16) |
+    ((buf[offset + 3] ?? 0) << 24)
+  ) >>> 0;
+}
+
+function readU16LE(buf: Uint8Array, offset: number): number {
+  return (buf[offset] ?? 0) | ((buf[offset + 1] ?? 0) << 8);
+}
+
+function readU16BE(buf: Uint8Array, offset: number): number {
+  return ((buf[offset] ?? 0) << 8) | (buf[offset + 1] ?? 0);
 }

@@ -23,6 +23,7 @@ import { readChapters, type Chapter } from "../files/ChapterReader";
 import type { Annotation, HistoryEntry } from "../files/LocalMetadataStore";
 import { PlaybackError } from "../playback/PlaybackErrors";
 import { firstYouTubeSource } from "../files/YouTubeSource";
+import type { PlaybackCapabilityDetector } from "../playback/PlaybackCapabilities";
 import { formatFileSize, formatStretch, formatTime } from "./format";
 
 function el<T extends HTMLElement>(id: string): T {
@@ -40,6 +41,8 @@ export interface WorkspaceUIOptions {
   readyVideoSlot: HTMLElement;
   history: SessionHistoryService;
   annotations: AnnotationService;
+  /** Supplies the copy-ready device capability matrix (roadmap 4.7). */
+  detector: PlaybackCapabilityDetector;
   /**
    * Swap the playback engine. Supplied by the composition root (`main.ts`) so
    * the UI never constructs an engine itself — it only asks for one.
@@ -89,6 +92,7 @@ export class WorkspaceUI {
 
   private readonly history: SessionHistoryService;
   private readonly annotations: AnnotationService;
+  private readonly detector: PlaybackCapabilityDetector;
   private readonly onEngineChange?: (engine: "local" | "youtube") => void;
 
   /**
@@ -110,6 +114,8 @@ export class WorkspaceUI {
   private focusClockTimer: number | null = null;
   /** True while the YouTube embed owns the video slot. */
   private youtubeMode = false;
+  /** Latest YouTube load; older in-flight loads must not touch the UI. */
+  private youtubeLoadToken = 0;
   /** A validated link waiting on the one-time online-mode disclosure. */
   private pendingYouTubeInput: string | null = null;
 
@@ -119,6 +125,7 @@ export class WorkspaceUI {
     this.onEngineChange = options.onEngineChange;
     this.history = options.history;
     this.annotations = options.annotations;
+    this.detector = options.detector;
     this.analytics = new AnalyticsService(options.history.store);
     this.activeVideoSlot = options.activeVideoSlot;
     this.readyVideoSlot = options.readyVideoSlot;
@@ -589,12 +596,10 @@ export class WorkspaceUI {
       void this.startYouTubeFromInput(text);
     };
 
+    // Paste events bubble, so one document listener sees every paste. Adding
+    // the same handler to `window` as well made each paste start two loads.
     document.addEventListener("paste", onPaste);
-    window.addEventListener("paste", onPaste);
-    this.cleanups.push(() => {
-      document.removeEventListener("paste", onPaste);
-      window.removeEventListener("paste", onPaste);
-    });
+    this.cleanups.push(() => document.removeEventListener("paste", onPaste));
 
     const input = document.getElementById("youtube-input");
     if (input instanceof HTMLInputElement) {
@@ -741,6 +746,10 @@ export class WorkspaceUI {
   }
 
   private async performYouTubeLoad(input: string): Promise<void> {
+    // A paste can land while the previous handshake is still running. The
+    // adapter cancels the old attempt; this token makes sure its eventual
+    // rejection cannot raise an error screen over the newer load.
+    const loadToken = (this.youtubeLoadToken += 1);
     this.pendingYouTubeInput = null;
     this.pendingResume = null;
 
@@ -762,16 +771,21 @@ export class WorkspaceUI {
     this.showBusy(true);
     try {
       await this.manager.loadYouTube(input);
+      if (loadToken !== this.youtubeLoadToken) return;
       const title = this.manager.getSnapshot().metadata?.fileName ?? "YouTube video";
       this.announce(`${title} loaded. Press Start Live Session to go live.`);
     } catch (error) {
+      // A superseded attempt must stay silent: the newer load owns the screen.
+      if (loadToken !== this.youtubeLoadToken) return;
       const details = toDetails(error);
       this.showError(details);
       // Drive the state machine so the error screen and state agree.
       this.manager.reportFailure(details);
     } finally {
-      this.showBusy(false);
-      this.render(this.manager.getState());
+      if (loadToken === this.youtubeLoadToken) {
+        this.showBusy(false);
+        this.render(this.manager.getState());
+      }
     }
   }
 
@@ -866,6 +880,8 @@ export class WorkspaceUI {
 
     // The idle screen already calls `input.click()` inline; the rest are ours.
     bindOpen("open-video-btn");
+    // Focusable drop-zone tile on the idle screen (roadmap 4.5).
+    bindOpen("idle-browse-btn");
     bindOpen("change-video-btn");
     bindOpen("open-another-btn");
     bindOpen("try-another-btn");
@@ -1795,6 +1811,10 @@ export class WorkspaceUI {
     };
     clearAll?.addEventListener("click", () => void onClearAll());
 
+    // Capability report (roadmap 4.7): support text, never media or file names.
+    const copyCapability = document.getElementById("copy-capability-btn");
+    copyCapability?.addEventListener("click", () => void this.copyCapabilityReport());
+
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === "Escape") {
         const openDialog = document.querySelector("dialog[open]");
@@ -1821,6 +1841,64 @@ export class WorkspaceUI {
   private openShortcuts: () => void = () => undefined;
   private openAbout: () => void = () => undefined;
   private openMenu: () => void = () => undefined;
+
+  /**
+   * Copy the browser's own `canPlayType` answers as plain text, so a playback
+   * problem can be reported without uploading anything. Text only: no file
+   * names, paths, durations or media bytes.
+   */
+  private async copyCapabilityReport(): Promise<void> {
+    const status = document.getElementById("capability-status");
+    const reportBox = document.getElementById("capability-report") as HTMLTextAreaElement | null;
+    const text = this.buildCapabilityReport();
+    if (reportBox) reportBox.value = text;
+
+    let copied = false;
+    try {
+      await navigator.clipboard.writeText(text);
+      copied = true;
+    } catch {
+      // `file://` and older browsers may not expose the async Clipboard API;
+      // fall back to selecting the visible textarea so the user can copy it.
+      if (reportBox) {
+        reportBox.classList.remove("hidden");
+        reportBox.focus();
+        reportBox.select();
+        try {
+          copied = document.execCommand("copy");
+        } catch {
+          copied = false;
+        }
+      }
+    }
+
+    if (copied) {
+      reportBox?.classList.add("hidden");
+      if (status) status.textContent = "Copied — no file data included.";
+      this.announce("Capability report copied to the clipboard.");
+    } else {
+      if (status) status.textContent = "Copy blocked — select the report below and copy it manually.";
+      this.announce("Copy blocked. The capability report is shown for manual copy.");
+    }
+  }
+
+  private buildCapabilityReport(): string {
+    const version = document.getElementById("about-version")?.textContent?.trim() || "unknown";
+    const rows = this.detector.describeSupport();
+    return [
+      "LiveX device capability report",
+      `Version: ${version}`,
+      `Engine: ${this.adapter.id}`,
+      `User agent: ${navigator.userAgent}`,
+      `Platform: ${navigator.platform || "unknown"}`,
+      `Generated: ${new Date().toISOString()}`,
+      "",
+      "canPlayType results (native browser support only):",
+      ...rows.map((row) => `${row.label}: ${row.result}`),
+      "",
+      "No file names, paths or media data are included in this report.",
+    ].join("\n");
+  }
 
   private populateAbout(): void {
     void this.renderAnalytics();

@@ -218,6 +218,15 @@ export class YouTubeAdapter implements PlaybackAdapter {
   private recoveries = 0;
   /** Set when the player reports an error before playback ever began. */
   private preReadyErrorCode: number | null = null;
+  /**
+   * Incremented for every `loadVideo()`. A handshake can take many seconds, and
+   * a second paste during that window must cancel the first attempt instead of
+   * racing it for `this.player` (the stale attempt could otherwise win the
+   * assignment and leave a detached, silent player attached to the session).
+   */
+  private loadToken = 0;
+  /** Rejects an in-flight player creation so it stops touching the DOM. */
+  private cancelPendingCreate: (() => void) | null = null;
 
   /**
    * This engine does not start on its own: `SessionManager` must not auto-play
@@ -241,6 +250,10 @@ export class YouTubeAdapter implements PlaybackAdapter {
    */
   async loadVideo(input: string): Promise<MediaMetadata> {
     this.assertNotDisposed();
+    const token = ++this.loadToken;
+    // A previous handshake may still be running; cancel it before touching the
+    // container so it cannot resolve later and overwrite this load.
+    this.cancelPendingCreate?.();
     if (this.player) this.teardownPlayer();
 
     const parsed = parseYouTubeUrl(input);
@@ -295,6 +308,7 @@ export class YouTubeAdapter implements PlaybackAdapter {
     }
 
     if (this.disposed) throw this.disposedError();
+    if (token !== this.loadToken) throw this.supersededError();
     this.yt = yt;
 
     const host = document.createElement("div");
@@ -326,19 +340,46 @@ export class YouTubeAdapter implements PlaybackAdapter {
 
     this.container.replaceChildren(host);
 
+    let player: YTPlayerLike;
     try {
-      this.player = await this.createWithRetry(yt, frame.id);
+      player = await this.createWithRetry(yt, frame.id, token);
     } catch (error) {
+      // A superseded or disposed load must not report anything: the newer load
+      // (or the engine swap) owns the screen now.
+      if (this.disposed || token !== this.loadToken) throw error;
       this.status = "error";
-      const failure = new PlaybackError({
-        code: "unsupported-format",
-        message: "The YouTube player did not start.",
-        hint: "Check that the link is a public, embeddable video.",
-        cause: error,
-      });
+      // Preserve the player's own diagnosis. A pre-playback error code means
+      // the video itself is the problem (unembeddable, removed), and reporting
+      // a generic "did not start" hides the actionable reason.
+      const failure =
+        this.preReadyErrorCode !== null
+          ? this.describeError(this.preReadyErrorCode)
+          : error instanceof PlaybackError
+            ? error
+            : new PlaybackError({
+                code: "unsupported-format",
+                message: "The YouTube player did not start.",
+                hint: "Check that the link is a public, embeddable video.",
+                cause: error,
+              });
+      // Guarantee silence before showing the failure: a failed handshake can
+      // still leave YouTube's own wrapper elements behind the error screen.
+      this.teardownPlayer();
+      this.status = "error";
       this.emitter.emit("error", failure.toDetails());
       throw failure;
     }
+
+    if (this.disposed || token !== this.loadToken) {
+      // Disposed or superseded while the player was coming up: do not adopt it.
+      try {
+        player.destroy();
+      } catch {
+        // best-effort; the container has already moved on
+      }
+      throw this.supersededError();
+    }
+    this.player = player;
 
     const duration = this.player.getDuration();
     const title = this.readTitle();
@@ -374,20 +415,27 @@ export class YouTubeAdapter implements PlaybackAdapter {
    * screen. So a silent-but-alive player is adopted, and only a completely mute
    * one is retried.
    */
-  private async createWithRetry(yt: YTNamespace, frameId: string): Promise<YTPlayerLike> {
+  private async createWithRetry(
+    yt: YTNamespace,
+    frameId: string,
+    token: number,
+  ): Promise<YTPlayerLike> {
     let lastError: unknown = null;
 
     for (const host of EMBED_HOSTS) {
-      if (this.disposed) break;
+      if (this.disposed || token !== this.loadToken) break;
       let adopted = false;
       try {
-        const player = await this.createPlayer(yt, frameId, host, () => {
+        const player = await this.createPlayer(yt, frameId, host, token, () => {
           adopted = true;
         });
-        if (!this.player) this.player = player;
+        if (token === this.loadToken && !this.player) this.player = player;
         return player;
       } catch (error) {
         lastError = error;
+        // Disposed or superseded: the newer load owns the container now. Do
+        // not silence or rebuild anything it may already be using.
+        if (this.disposed || token !== this.loadToken) break;
         // A late `onReady` may still arrive for the attempt we just gave up on.
         // Adopting it beats tearing down a player that is actually running.
         if (adopted) break;
@@ -461,6 +509,7 @@ export class YouTubeAdapter implements PlaybackAdapter {
     yt: YTNamespace,
     frameId: string,
     host: string,
+    token: number,
     onAdopted: () => void,
   ): Promise<YTPlayerLike> {
     return new Promise<YTPlayerLike>((resolve, reject) => {
@@ -473,8 +522,17 @@ export class YouTubeAdapter implements PlaybackAdapter {
         if (settled) return;
         settled = true;
         window.clearTimeout(timer);
+        if (this.cancelPendingCreate === cancel) this.cancelPendingCreate = null;
         fn();
       };
+
+      // `loadVideo()` calls this when a newer load or a dispose supersedes us.
+      // Settling here frees the timer immediately instead of leaving it to
+      // fire against a container that now belongs to a different player.
+      const cancel = (): void => {
+        settle(() => reject(new Error("The YouTube player load was superseded.")));
+      };
+      this.cancelPendingCreate = cancel;
 
       const adopt = (): void => {
         ready = true;
@@ -488,6 +546,10 @@ export class YouTubeAdapter implements PlaybackAdapter {
           if (player && (await this.isPlayerAlive(player))) {
             // Adopt it. It is running; refusing it would only break playback.
             adopt();
+            return;
+          }
+          if (this.disposed || token !== this.loadToken) {
+            settle(() => reject(new Error("The YouTube player load was superseded.")));
             return;
           }
           settle(() => reject(new Error(`The YouTube player never started on ${host}.`)));
@@ -615,7 +677,7 @@ export class YouTubeAdapter implements PlaybackAdapter {
     // start", so the message names the real cause.
     this.emitter.emit(
       "error",
-      this.describeError(this.preReadyErrorCode ?? code),
+      this.describeError(this.preReadyErrorCode ?? code).toDetails(),
     );
   }
 
@@ -635,7 +697,7 @@ export class YouTubeAdapter implements PlaybackAdapter {
     }
   }
 
-  private describeError(code: number) {
+  private describeError(code: number): PlaybackError {
     const shared = { hint: "See the video's availability on YouTube." };
     switch (code) {
       case 2:
@@ -643,32 +705,32 @@ export class YouTubeAdapter implements PlaybackAdapter {
           code: "unsupported-format",
           message: "That YouTube link is not valid.",
           ...shared,
-        }).toDetails();
+        });
       case 5:
         return new PlaybackError({
           code: "decode-failed",
           message: "This video cannot play in the embedded YouTube player.",
           hint: "The video's owner has not allowed embedding.",
-        }).toDetails();
+        });
       case 100:
         return new PlaybackError({
           code: "unsupported-format",
           message: "This video is unavailable or private.",
           ...shared,
-        }).toDetails();
+        });
       case 101:
       case 150:
         return new PlaybackError({
           code: "unsupported-format",
           message: "The owner does not allow this video to be embedded.",
           hint: "Open it on YouTube instead.",
-        }).toDetails();
+        });
       default:
         return new PlaybackError({
           code: "unknown",
           message: "The YouTube player reported a problem.",
           hint: `Player error code ${code}.`,
-        }).toDetails();
+        });
     }
   }
 
@@ -832,6 +894,9 @@ export class YouTubeAdapter implements PlaybackAdapter {
   /** Destroy the player and empty the slot without marking ourselves disposed. */
   private teardownPlayer(): void {
     this.stopPolling();
+    // Reject any handshake still in flight, so its timer cannot resolve later
+    // and attach a player to a slot that has already been emptied.
+    this.cancelPendingCreate?.();
     // `destroy()` is a postMessage round-trip and can be a no-op if the player
     // is mid-initialisation, so the iframe removal is what actually guarantees
     // no audio survives a teardown.
@@ -854,6 +919,14 @@ export class YouTubeAdapter implements PlaybackAdapter {
       code: "no-file",
       message: "No YouTube video is loaded.",
       hint: "Paste a YouTube link to begin.",
+    });
+  }
+
+  /** Thrown when a newer paste (or a dispose) replaced an in-flight load. */
+  private supersededError(): PlaybackError {
+    return new PlaybackError({
+      code: "aborted",
+      message: "The YouTube player load was superseded.",
     });
   }
 

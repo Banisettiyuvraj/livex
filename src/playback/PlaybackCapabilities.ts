@@ -42,6 +42,13 @@ const KNOWN_UNSUPPORTED_VIDEO = new Set([
 
 export class PlaybackCapabilityDetector {
   private readonly videoElement: HTMLVideoElement;
+  /**
+   * `canPlayType` answers do not change during a page session, and the same
+   * MIME strings are asked repeatedly (per-file probe + the support matrix),
+   * so memoise them in memory. Nothing is persisted: a browser update or a
+   * restart should be free to give a different answer.
+   */
+  private readonly canPlayCache = new Map<string, string>();
 
   constructor(videoElement?: HTMLVideoElement) {
     this.videoElement = videoElement ?? document.createElement("video");
@@ -49,7 +56,11 @@ export class PlaybackCapabilityDetector {
 
   /** Raw `canPlayType` for a MIME string: "probably" | "maybe" | "". */
   canPlayType(mime: string): string {
-    return this.videoElement.canPlayType(mime);
+    const cached = this.canPlayCache.get(mime);
+    if (cached !== undefined) return cached;
+    const result = this.videoElement.canPlayType(mime);
+    this.canPlayCache.set(mime, result);
+    return result;
   }
 
   /**
@@ -109,6 +120,20 @@ export class PlaybackCapabilityDetector {
       if (verdict) {
         return { ...base, supported: false, codecUnknown: containerProbe.videoCodec === null, reason: verdict };
       }
+    }
+
+    // MPEG-TS/PS have no native demuxer in Chromium. Now that the probe names
+    // the codec, say which one was found instead of the old generic message.
+    // If a browser does claim support, let real playback be the judge.
+    if (
+      (containerProbe.container === "mpeg-ts" || containerProbe.container === "mpeg-ps") &&
+      nativeSignal === ""
+    ) {
+      const label = containerProbe.container === "mpeg-ts" ? "MPEG-TS" : "MPEG-PS";
+      const reason = containerProbe.videoCodec
+        ? `${label} with ${containerProbe.videoCodec} video cannot be demuxed by browser video elements`
+        : `${label} playback is not supported by browser video elements`;
+      return { ...base, supported: false, codecUnknown: containerProbe.videoCodec === null, reason };
     }
 
     if (containerProbe.videoCodec && KNOWN_UNSUPPORTED_VIDEO.has(containerProbe.videoCodec)) {

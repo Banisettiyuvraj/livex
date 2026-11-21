@@ -105,12 +105,15 @@
       <div class="bracket-bl"></div>
       <div class="bracket-br"></div>
 
-      <div class="w-14 h-14 rounded-2xl bg-surface border border-border flex items-center justify-center mb-5 text-neutral-300 shadow-xl pointer-events-auto">
+      <!-- The visual drop tile is also the explicit keyboard target, so the
+           idle screen has a focusable "browse" entry point of its own. -->
+      <button type="button" id="idle-browse-btn" title="Open a video file" aria-label="Open a video file"
+              class="w-14 h-14 rounded-2xl bg-surface border border-border flex items-center justify-center mb-5 text-neutral-300 shadow-xl pointer-events-auto cursor-pointer hover:bg-surface-hover transition-colors focus-ring">
         <svg aria-hidden="true" class="w-7 h-7 stroke-[1.6]" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
           <rect height="15" rx="2.5" width="20" x="2" y="4.5"></rect>
           <polygon points="10 8.5 15 12 10 15.5 10 8.5"></polygon>
         </svg>
-      </div>
+      </button>
 
       <h1 class="text-xl sm:text-2xl font-medium tracking-tight text-white mb-2">
         Drop a class video anywhere to begin
@@ -145,7 +148,7 @@
             <path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2C0 8.1 0 12 0 12s0 3.9.5 5.8a3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1c.5-1.9.5-5.8.5-5.8s0-3.9-.5-5.8ZM9.6 15.6V8.4l6.2 3.6-6.2 3.6Z"></path>
           </svg>
           <input id="youtube-input" type="text" inputmode="url" autocomplete="off" spellcheck="false"
-                 placeholder="Paste a YouTube link — it starts live"
+                 placeholder="Paste a YouTube link"
                  aria-label="YouTube video link"
                  class="flex-1 min-w-0 bg-transparent text-sm text-neutral-200 placeholder:text-neutral-600 outline-none py-1.5" />
           <button id="youtube-paste-btn" class="px-2.5 py-1.5 rounded-lg text-[11px] font-medium text-neutral-300 hover:text-white hover:bg-surface-hover transition-colors focus-ring shrink-0">Paste</button>
@@ -497,6 +500,16 @@
       </dl>
       <p id="analytics-hint" class="text-[10px] text-neutral-500 mt-2 leading-relaxed"></p>
     </div>
+
+    <!-- Telemetry-free capability report (roadmap 4.7): text only, no media. -->
+    <div class="flex items-center gap-2 mb-4">
+      <button id="copy-capability-btn" type="button" class="px-3 py-1.5 rounded-lg bg-surface border border-border text-neutral-300 text-xs font-medium hover:bg-surface-hover transition-colors focus-ring">
+        Copy capability report
+      </button>
+      <span id="capability-status" class="text-[10px] text-neutral-500" role="status" aria-live="polite"></span>
+    </div>
+    <textarea id="capability-report" readonly aria-label="Device capability report"
+              class="hidden w-full h-28 mb-4 rounded-lg border border-border bg-canvas/60 p-2 font-mono text-[10px] text-neutral-300 resize-none"></textarea>
 
     <div class="flex items-center gap-2">
       <button id="clear-all-data-btn" class="px-3 py-1.5 rounded-lg bg-red-500/15 border border-red-500/40 text-red-300 text-xs font-medium hover:bg-red-500/25 transition-colors focus-ring">

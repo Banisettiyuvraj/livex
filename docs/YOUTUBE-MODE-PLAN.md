@@ -1,12 +1,12 @@
 # LiveX — YouTube Mode: Implementation Plan
 
-**Status: IMPLEMENTED AND VERIFIED (v1.5).** Built, wired, and exercised in a
-real Chromium by `npm run verify:youtube` (23/23 checks: disclosure fires before
+**Status: IMPLEMENTED AND VERIFIED (v1.4).** Built, wired, and exercised in a
+real Chromium by `npm run verify:youtube` (27/27 checks: disclosure fires before
 any Google request, the embed loads the pasted id, playback advances, pause and
-resume reach the iframe player, switching back to a local file restores the
-native engine). This document is kept as the design record and as the place
-where the trade-offs are stated, because this feature changes two of LiveX's
-headline promises.
+resume reach the iframe player, a second paste replaces the player cleanly, and
+switching back to a local file restores the native engine). This document is
+kept as the design record and as the place where the trade-offs are stated,
+because this feature changes two of LiveX's headline promises.
 
 **A regression this verification caught, worth remembering:** the first version
 of `SessionManager.setAdapter()` disposed the outgoing adapter. Because the
@@ -30,23 +30,27 @@ never disposes the engine it is swapping in.
 | `src/styles/app.css` | `body.youtube-mode` chrome rules |
 
 Behaviour: pasting a YouTube link anywhere on the workspace (or using the idle
-field / **Go live**) loads the video and starts a LIVE session immediately — the
-paste is the user gesture, so there is no second click. Local files are
-unchanged and still start from the **Start Live Session** button.
+field / **Go live**) loads the video into `ready`; **Start Live Session** begins
+playback, exactly like a local file. Delaying the start keeps the LIVE promise
+honest: the session begins at 0:00 when the user says so, not while the embed is
+still handshaking.
 
 **Decisions taken:**
 
-1. **YouTube's own controls stay visible** (`controls=1`). That is what "the same
-   as YouTube" means to a user, and it keeps the embed inside YouTube's terms.
-   Our LIVE chrome sits *around* the player, never instead of it.
+1. **YouTube's own controls are hidden** (`controls=0`) and our LIVE surface sits
+   over the embed. This deliberately reverses the original recommendation above:
+   the live build was reviewed and the thumbs-down/seek chrome was removed to
+   keep the "live session" frame. `controls=0` is documented and supported, but
+   hiding the player's UI specifically to remove its seek bar remains the ToS
+   grey area flagged in §2 — the app makes no enforcement or DRM claim.
 2. **The one-time disclosure is required** before the first link loads, and
    nothing — not even the API script — is fetched before the user accepts.
 3. **Local mode is untouched.** YouTube is a second engine attached on demand;
    the local-file path still loads zero external bytes.
 4. **Anti-skip is advisory in this mode**, and the UI does not claim otherwise:
-   with YouTube's controls visible the user can always scrub there. Our ceiling
-   still applies to our own seek paths, and the integrity report still counts
-   real watch time.
+   the embed is cross-origin, so the player cannot be clamped from outside and
+   the user can always open the video on YouTube. Our ceiling still applies to
+   our own seek paths, and the integrity report still counts real watch time.
 
 **Known limits, stated rather than hidden:**
 
@@ -72,7 +76,7 @@ Three findings drive the design:
 
 | # | Finding | Consequence |
 | --- | --- | --- |
-| 1 | YouTube's ToS permits embedding (*"You may also show YouTube videos through the embeddable YouTube player"*) but forbids circumventing features that *"limit the use of the Service"*. `controls=0` is a documented, supported parameter, so hiding the player chrome is legitimate — but using it specifically to lock out YouTube's own seek bar is hostile use of a sanctioned knob. | **Recommendation: do not hide the controls.** Keep YouTube's player intact and honest; add our LIVE framing *around* it. |
+| 1 | YouTube's ToS permits embedding (*"You may also show YouTube videos through the embeddable YouTube player"*) but forbids circumventing features that *"limit the use of the Service"*. `controls=0` is a documented, supported parameter, so hiding the player chrome is legitimate — but using it specifically to lock out YouTube's own seek bar is hostile use of a sanctioned knob. | **Recommendation was: do not hide the controls.** The shipped build chose `controls=0` anyway for the live-session illusion (see §0); that remains the flagged grey area, not a settled right. |
 | 2 | LiveX's docs and README promise **"zero external requests"** and **"works fully offline"**, and two automated tests enforce it. A YouTube embed cannot honour that by definition. | The promise must be re-scoped to **local-file mode**. YouTube mode is explicitly online, disclosed, and opt-in. |
 | 3 | Anti-skip on YouTube is **not enforceable**. The video lives in a cross-origin iframe; the user can open youtube.com, or use any other client. | Presentation must never imply DRM. This is consistent with the existing stance — anti-skip is already documented as a focus aid. |
 
@@ -172,7 +176,7 @@ This is the part that needs your decision, not mine.
 | --- | --- | --- |
 | `livex.spec.ts` → "never sends a network request carrying video bytes" | asserts zero non-local GETs | Parametrise: local mode = unchanged; YouTube mode = allow `youtube.com`/`ytimg.com`/`googlevideo.com` only |
 | `livex.spec.ts` → "works with every external request blocked (offline)" | aborts all external | Split into two tests: local mode still plays offline; YouTube mode fails with a clear, friendly message |
-| `build-check.mjs` → `externalUrls` must be empty | enforces no external URLs in `dist` | The YouTube API `<script>` is injected at runtime, so this can stay — **verify**, do not assume |
+| `build-check.mjs` → `externalUrls` must be empty | enforces no external URLs in `dist` | Still enforced for markup and inline CSS; the check now strips the inlined script body, because a URL *string* (the on-demand API endpoint) is not a resource. The browser checks still assert zero external requests. |
 | New unit tests | — | URL parsing: `watch?v=`, `youtu.be/`, `/embed/`, `/shorts/`, `&t=`/`#t=`, playlist links, garbage input, non-YouTube input, XSS-ish input |
 | New E2E | — | paste → consent → iframe with correct `videoId`; live/paused/completed states; forward seek clamped by our chrome |
 
@@ -201,19 +205,15 @@ adapter against a **stubbed `YT` object** rather than the live service.
   entry brings its own network footprint.
 - ❌ Claiming enforcement. Copy must say the skip ceiling applies to our UI only.
 
-## 9. Open decisions for you
+## 9. Decisions (resolved)
 
-1. **Controls visible (recommended) or `controls=0`?** Visible is defensible and
-   honest; hidden is a better "live" illusion but leans on a sanctioned parameter
-   to defeat YouTube's own UI.
-2. **Consent notice: required or a one-line hint?** Required is slower but keeps
-   the privacy story credible.
-3. **Separate mode, or replace local-only entirely?** The plan assumes a mode
-   switch: local stays the default and keeps every current guarantee.
+1. **Controls:** hidden (`controls=0`), accepting the ToS grey area in §2.
+2. **Consent notice:** required once, before any Google code is fetched.
+3. **Mode:** separate, opt-in; local stays the default and keeps every current
+   guarantee.
 
-## 10. Recommendation
+## 10. Recommendation (historical)
 
-Proceed to **Phase 0 only**, with a decision gate. The spike is cheap, and it
-answers the questions that decide whether Phases 1–6 are worth the erosion of
-the "zero external requests / fully offline" guarantee — which is currently one
-of LiveX's strongest, most defensible properties.
+This section is retained as the pre-build recommendation. The gate was accepted,
+all phases shipped in v1.4, and the privacy claim was re-scoped to local-file mode
+rather than weakened globally.

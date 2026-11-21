@@ -184,6 +184,9 @@ export class SessionManager {
   /** Register a new local file and move idle/error/completed → ready. */
   async loadFile(file: File): Promise<MediaMetadata> {
     this.resetTracking();
+    // Replacing a running session (same engine, so `setAdapter` did not reset
+    // it) must pass through idle: live/paused → ready is not a legal move.
+    if (this.state !== "idle") this.transition("idle", "reset");
     this.metadata = await this.adapter.load(file);
 
     this.duration = this.adapter.getDuration() || this.metadata.duration || 0;
@@ -212,6 +215,12 @@ export class SessionManager {
     if (typeof yt.loadVideo !== "function") {
       throw new Error("The active playback engine cannot load YouTube links.");
     }
+
+    // A second link can arrive while the first video is live/paused, and the
+    // engine swap early-returns when YouTube is already active. Leave that
+    // state first, otherwise the `ready` transition below is rejected and the
+    // UI keeps showing the previous session.
+    if (this.state !== "idle") this.transition("idle", "reset");
 
     this.metadata = await yt.loadVideo(input);
 

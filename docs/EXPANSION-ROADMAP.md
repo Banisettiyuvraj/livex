@@ -27,7 +27,7 @@ So this doc does not repeat solved problems:
 ## Part 1 — High-value, low-risk ✅ SHIPPED in v1.3
 
 All six items are implemented and covered by `tests/e2e/features.spec.ts`
-(37 checks, driven by `tests/e2e/suites/part1.mjs`).
+(39 checks, driven by `tests/e2e/suites/part1.mjs`).
 See the implementation notes at the end of this section.
 
 These add real utility without touching the architecture or privacy model.
@@ -200,13 +200,22 @@ near-real-time, and (c) a canvas + WebAudio presenter is budgeted.
 If it happens: lazy-load only after a native failure, behind a flag, and never on
 the default path.
 
-### 3.2 Codec detail for AVI / TS / PS ⬜ OPEN — recommended next
+### 3.2 Codec detail for AVI / TS / PS ✅ SHIPPED
 
-The probe currently cannot name codecs in those containers (says "container
-unsupported"). A minimal AVI `hdrl`/`strf` reader and an MPEG-TS PMT parser would
-turn those into precise messages and make the compatibility matrix complete.
+The probe now reads codec ids from each container's own structure instead of a
+printable-byte guess:
 
-- Cost: medium (~200 LOC each, well-scoped).
+- **AVI** — RIFF `hdrl → strl → strf`: BITMAPINFOHEADER `biCompression` for
+  video, WAVEFORMATEX `wFormatTag` (including `WAVE_FORMAT_EXTENSIBLE`) for audio.
+- **MPEG-TS** — PAT → PMT stream types (one 188/192/204-byte packet scanner).
+- **MPEG-PS** — program stream map when present, otherwise the MPEG-1/2 sequence
+  header plus elementary stream ids. MPEG-2 is distinguished by the sequence
+  extension start code.
+
+The fixtures now report `MPEG-4 Part 2 / MP3` (AVI), `MPEG-2 / MPEG audio` (TS)
+and `MPEG-2 / MPEG audio` (PS), so the rejection message names what failed.
+Implementation: `src/files/MediaProbe.ts`; contract tests:
+`tests/unit/mediaProbe.test.ts`.
 
 ### 3.3 Streamed probe for large files ⬜ OPEN (low priority)
 
@@ -214,10 +223,13 @@ Today: 64 KB head + up to 2 MB tail. For 10 GB files this is fine, but a proper
 `moov` *scan* (box-by-box seeking rather than loading a 2 MB tail) would reduce
 memory and handle `moov` anywhere. Low priority but clean.
 
-### 3.4 Capability cache ⬜ OPEN
+### 3.4 Capability cache ✅ SHIPPED
 
-`canPlayType` results per container/codec are stable for a session. Cache them in
-memory (and optionally `localStorage`) to skip repeated probing.
+`canPlayType` results are memoised per MIME string in `PlaybackCapabilityDetector`.
+The same strings are asked by every file probe and again by the support matrix,
+so a session now asks the browser once per question. The cache is intentionally
+in-memory only: nothing is persisted, so a browser update or restart is free to
+answer differently. Covered by `tests/unit/playbackCapabilities.test.ts`.
 
 ### 3.5 Better memory behaviour on huge files ⬜ OPEN
 
@@ -226,7 +238,7 @@ Object URLs are cheap, but decoding a 4K file on a low-RAM device is not. Add a
 
 ---
 
-## Part 6 — YouTube link mode ✅ SHIPPED in v1.5
+## Part 6 — YouTube link mode ✅ SHIPPED in v1.4
 
 Paste a YouTube link and it plays as a simulated live session. Full design
 record, constraints and non-guarantees: [YOUTUBE-MODE-PLAN.md](./YOUTUBE-MODE-PLAN.md).
@@ -235,15 +247,19 @@ record, constraints and non-guarantees: [YOUTUBE-MODE-PLAN.md](./YOUTUBE-MODE-PL
 | --- | --- | --- |
 | URL parsing | `src/files/YouTubeSource.ts` | watch / youtu.be / embed / shorts / live, scheme-less, `t=` and `start=` offsets. Only the validated 11-char id reaches the embed URL |
 | Player | `src/playback/YouTubeAdapter.ts` | `PlaybackAdapter` on the IFrame Player API; maps `ENDED`/pause/play, polls position, fails soft offline |
-| Engine swap | `SessionManager.setAdapter()` / `loadYouTube()` | exactly one active engine; the outgoing adapter is disposed, listeners preserved |
+| Engine swap | `SessionManager.setAdapter()` / `loadYouTube()` | exactly one active engine; engines are long-lived and **not** disposed on swap (doing so broke re-entry), listeners are re-subscribed |
 | Paste + disclosure | `WorkspaceUI.bindYouTubePaste()` | paste anywhere, one-time privacy notice before any Google code loads |
 | Mode chrome | `body.youtube-mode` in `app.css` | local-only controls (chapters, captions, PiP, bookmarks) step aside |
 
 **Decisions worth keeping:**
 
-- YouTube's own controls stay visible (`controls=1`). It is what users expect
-  from "the same as YouTube", and it keeps the embed within YouTube's terms,
-  which permit embedding but forbid circumventing the player.
+- YouTube's own controls are hidden (`controls=0`) and our LIVE surface sits
+  over the embed. This reversed the original recommendation after the live
+  build was reviewed: hiding the chrome is a documented parameter, but using it
+  specifically to remove YouTube's seek UI remains the grey area flagged in
+  `YOUTUBE-MODE-PLAN.md`. No DRM or enforcement is claimed.
+- A pasted link lands in `ready` and waits for **Start Live Session**, the same
+  as a local file, so the session cannot begin mid-video while the embed loads.
 - The local-file promise is unchanged: no Google code is fetched until the user
   accepts the disclosure, and local sessions still make zero external requests.
 - Anti-skip is **advisory** in this mode and the UI says so, because a
@@ -256,14 +272,15 @@ record, constraints and non-guarantees: [YOUTUBE-MODE-PLAN.md](./YOUTUBE-MODE-PL
 
 ### 4.1 Unit tests ✅ DONE
 
-Implemented: eight Vitest suites under `tests/unit/` covering the pieces that
+Implemented: ten Vitest suites under `tests/unit/` covering the pieces that
 are pure logic and were previously only reachable through a browser:
 
 - `MediaProbe` — fixture bytes → expected container/codec (uses the real fixtures).
 - `SessionState` — every transition pair, including illegal ones.
 - `PlaybackErrors` — every `MediaError` code → correct message.
 - `format` — `formatTime` edge cases (`NaN`, `0`, `> 1h`).
-- plus `sessionManager`, `chapters`, `subtitles`, `analytics`.
+- plus `sessionManager`, `chapters`, `subtitles`, `analytics`, `youtubeSource`,
+  `playbackCapabilities` (cache + support matrix).
 
 Run with `npm run test:unit`. They execute in milliseconds, where the browser
 suites take seconds.
@@ -299,25 +316,36 @@ guards the built output over both `http` and `file://`.
 a full nested git repo — make it a proper submodule or drop it, since it is not
 part of the build.
 
-### 4.5 Accessibility pass ⬜ OPEN — highest-value remaining item
+### 4.5 Accessibility pass ✅ DONE
 
-- The workspace drop zone is not keyboard-reachable; add a focusable
-  "drop or browse" target.
-- Live region (`aria-live="polite"`) for state changes (LIVE/PAUSED/COMPLETED)
-  so screen readers announce them.
-- Verify contrast on `text-neutral-500` over `#121212`.
-- Focus-visible rings are currently removed by `select-none` styling choices.
+- ✅ Live region (`aria-live="polite"`) announces state changes
+  (`#session-announcer`).
+- ✅ Focus-visible rings are restored by `.focus-ring:focus-visible`, not removed
+  by the `select-none` styling.
+- ✅ Contrast measured and fixed: stock Tailwind `neutral-500`/`600` were 3.95:1
+  and 2.40:1 on `#121212`; the theme now maps them to 5.7:1 and 5.1:1.
+- ✅ The idle screen's visual drop tile is now a real `<button>`
+  (`#idle-browse-btn`) with `.focus-ring`, a visible hover state and an
+  accessible name, so keyboard users have a focusable "open a video" target
+  inside the empty workspace as well as in the toolbar. The full-window
+  `#drop-target` stays decorative (`aria-hidden`); it is a drag surface, not a
+  control.
 
 ### 4.6 Structured error reporting (still local) ⬜ OPEN
 
 A `PlaybackErrorCode` histogram in dev builds only. Never send it anywhere.
 
-### 4.7 Telemetry-free "compatibility report" export ⬜ OPEN
+### 4.7 Telemetry-free "compatibility report" export ✅ SHIPPED
 
-A "Copy device capability report" button in dev/support mode that exports the
-`canPlayType` matrix as text — lets users report playback issues without
-uploading a file. Directly supports the "no universal support" honesty stance.
-`PlaybackCapabilityDetector.describeSupport()` already produces the data.
+**Copy capability report** in the About dialog writes a plain-text report:
+version, engine, user agent, platform, timestamp, and the full `canPlayType`
+matrix. It uses the async Clipboard API and falls back to a visible, selectable
+textarea when the clipboard is blocked (`file://`, older browsers). The report
+contains **no file names, paths or media data** — it exists so a playback problem
+can be described without uploading anything, which supports the "no universal
+support" honesty stance. Data source: `PlaybackCapabilityDetector.describeSupport()`;
+wiring: `WorkspaceUI.copyCapabilityReport()`; browser check: `[4.7]` in
+`tests/e2e/suites/part1.mjs`.
 
 ---
 
@@ -345,17 +373,23 @@ uploading a file. Directly supports the "no universal support" honesty stance.
 4. ~~**2.5 + 2.3** — subtitles, then chapters/playlist.~~ **Done (v1.4).**
 5. ~~**4.1 + 4.2** — unit tests and a self-contained test runner.~~ **Done.**
 6. Re-evaluate **3.1** only with real evidence. **Still refused** — see below.
-7. **Next up: 3.2** — codec detail for AVI/TS/PS, then **4.5** accessibility.
+7. ~~**3.2** — codec detail for AVI/TS/PS.~~ **Done.** So are **4.5**
+   (keyboard-reachable drop tile), **4.7** (capability report export) and **3.4**
+   (capability cache).
+8. Remaining open items are deliberate: **3.3** (box-by-box `moov` scan), **3.5**
+   (low-memory mode), **4.6** (dev-only error histogram), the `localplay/`
+   submodule-or-delete decision in **4.4**, and Part 5 (PWA, transcript, etc.).
+   None of them blocks the shipped feature set.
 
-### Why 3.2 is the next real feature (not 3.1)
+### Why 3.2 came before 3.1
 
 `FEASIBILITY-WASM.md` rates AVI/MPEG-2 as *low frequency*, yet those containers
-account for 4 of the 14 compatibility fixtures — so the flagship "tell the user
-**why** a file failed" behaviour currently degrades to a vague "container
-unsupported" for a large share of the tested cases. Reading an AVI `hdrl`/`strf`
-header and an MPEG-TS PMT turns those into precise messages for ~200 LOC each,
-with no architecture change. It also produces the evidence the 3.1 gate demands:
-you cannot claim non-native formats are rare until you can name them.
+account for 3 of the 14 compatibility fixtures — so the flagship "tell the user
+**why** a file failed" behaviour used to degrade to a vague "container
+unsupported" for a meaningful share of the tested cases. Reading an AVI
+`hdrl`/`strf` header and an MPEG-TS PMT turned those into precise messages with
+no architecture change. It also produces the evidence the 3.1 gate demands: you
+cannot claim non-native formats are rare until you can name them.
 
 ### What to keep refusing
 

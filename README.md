@@ -11,6 +11,8 @@ can't be skipped ahead.
 - Playback behind a swappable **playback adapter interface** — two engines ship:
   native `<video>` for local files, and the YouTube IFrame player for links.
 - Real container/codec detection, so unsupported files fail with a reason.
+- A copyable **device capability report** in About — plain text, no file names
+  or media — so playback problems can be reported without uploading anything.
 
 ## Quick start
 
@@ -39,10 +41,10 @@ the workspace — no need to find a field.
 
 | | Local file | YouTube link |
 | --- | --- | --- |
-| How to start | Drop / Open Video, then Start Live Session | Paste the link — starts immediately |
+| How to start | Drop / Open Video, then Start Live Session | Paste the link, then Start Live Session |
 | Network | **None.** Zero external requests | Streams from YouTube/Google |
 | Offline | Works | Needs a connection |
-| Anti-skip | Clamped in the playing engine | **Advisory** — YouTube's own controls remain |
+| Anti-skip | Clamped in the playing engine | **Advisory** — the embed is cross-origin; our ceiling only covers our own seek paths |
 | Chapters, subtitles, PiP, bookmarks | Yes | Hidden (local-file features) |
 
 The first YouTube paste shows a one-time notice explaining the online behaviour
@@ -103,7 +105,9 @@ DOM. Swapping engines touches `PlaybackAdapter` + one line in `main.ts`.
 - **Playback integrity report** — watched %, skip attempts and longest
   uninterrupted stretch, instead of a silent, unenforceable wall.
 - **Your watching stats** — local-only totals in the About dialog.
-- Real container + codec detection, so unsupported files say *why*.
+- Real container + codec detection, so unsupported files say *why* — including
+  the codec found inside AVI (`hdrl`/`strf`), MPEG-TS (PAT/PMT) and MPEG-PS
+  (sequence header).
 
 ## Keyboard
 
@@ -216,7 +220,7 @@ Four suites:
 - `npm test` runs `tests/e2e/livex.spec.ts` — session state machine, anti-skip,
   the 1× lock, completion semantics, the compatibility matrix, offline behaviour
   and privacy.
-- `tests/e2e/features.spec.ts` — the Part 1 and Part 2 feature checks (37 + 69),
+- `tests/e2e/features.spec.ts` — the Part 1 and Part 2 feature checks (39 + 69),
   whose assertion bodies live in `tests/e2e/suites/` and are imported by the spec.
 - `npm run verify` — build, then verify the output over http **and** `file://`.
 

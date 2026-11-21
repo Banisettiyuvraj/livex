@@ -31,9 +31,9 @@
 | 7 | MKV | HEVC | AAC | matroska / HEVC / AAC | **rejected** | Not playable |
 | 8 | MOV | H.264 (`avc1`) | AAC | mp4 / avc1 / mp4a | allowed | **Plays** |
 | 9 | MOV | HEVC (`hev1`) | AAC | mp4 / hev1 / mp4a | allowed | **Plays** |
-| 10 | AVI | MPEG-4 Part 2 | MP3 | avi / — / — | **rejected** | Not playable |
-| 11 | MPEG-TS | MPEG-2 | MP2 | mpeg-ts / — / — | **rejected** | Not playable |
-| 12 | MPEG-PS | MPEG-2 | MP2 | mpeg-ps / — / — | **rejected** | Not playable |
+| 10 | AVI | MPEG-4 Part 2 | MP3 | avi / MPEG-4 Part 2 / MP3 | **rejected** | Not playable |
+| 11 | MPEG-TS | MPEG-2 | MPEG audio | mpeg-ts / MPEG-2 / MPEG audio | **rejected** | Not playable |
+| 12 | MPEG-PS | MPEG-2 | MPEG audio | mpeg-ps / MPEG-2 / MPEG audio | **rejected** | Not playable |
 
 Rows 7, 10, 11, 12 are rejected **before** the file is mounted, with a message
 naming the detected container and codec — this is the core improvement over the
@@ -67,8 +67,9 @@ That is why `canPlayType` is treated as a hint, never as the final verdict.
   HEVC without platform support, and some MKV subtitle-attachment cases.
 - **MKV** is only as good as its contents. H.264-in-MKV works in most Chromium
   builds; HEVC-in-MKV does not.
-- **AVI/TS/PS codec-level detail** is not read (their headers need a real
-  demuxer), so those errors say "container unsupported" rather than naming codecs.
+- **AVI/TS/PS codec-level detail** is read from `hdrl/strf`, the PAT/PMT, and
+  the PS sequence header. These containers still cannot be demuxed by browser
+  video elements, but the rejection names the codec that was found.
 
 ## Manual checks still to run (not automatable here)
 
