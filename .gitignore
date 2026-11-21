@@ -8,3 +8,4 @@ test-results/
 tests/shot-*.png
 tests/_*.mjs
 tests/build-*.png
+.claude/settings.local.json 
