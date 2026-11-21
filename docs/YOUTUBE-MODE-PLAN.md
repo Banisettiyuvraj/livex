@@ -1,10 +1,11 @@
 # LiveX — YouTube Mode: Implementation Plan
 
 **Status: IMPLEMENTED AND VERIFIED (v1.4).** Built, wired, and exercised in a
-real Chromium by `npm run verify:youtube` (27/27 checks: disclosure fires before
-any Google request, the embed loads the pasted id, playback advances, pause and
-resume reach the iframe player, a second paste replaces the player cleanly, and
-switching back to a local file restores the native engine). This document is
+real Chromium by `npm run verify:youtube` (31/31 checks: disclosure fires before
+any Google request, the embed loads the pasted id, playback advances, captions
+start off and the CC button toggles them, pause and resume reach the iframe
+player, a second paste replaces the player cleanly, and switching back to a
+local file restores the native engine). This document is
 kept as the design record and as the place where the trade-offs are stated,
 because this feature changes two of LiveX's headline promises.
 
@@ -47,15 +48,21 @@ still handshaking.
    nothing — not even the API script — is fetched before the user accepts.
 3. **Local mode is untouched.** YouTube is a second engine attached on demand;
    the local-file path still loads zero external bytes.
-4. **Anti-skip is advisory in this mode**, and the UI does not claim otherwise:
+4. **Captions start off and belong to the user.** YouTube can auto-enable
+   captions from the viewer's account settings or auto-generation. The embed
+   clears the caption track when playback starts, and the shared **CC** button
+   toggles the iframe's caption module on and off. It is best-effort: a video
+   with no tracks simply shows nothing.
+5. **Anti-skip is advisory in this mode**, and the UI does not claim otherwise:
    the embed is cross-origin, so the player cannot be clamped from outside and
    the user can always open the video on YouTube. Our ceiling still applies to
    our own seek paths, and the integrity report still counts real watch time.
 
 **Known limits, stated rather than hidden:**
 
-- Chapters, subtitles, bookmark chips and PiP are local-file features and are
-  hidden in YouTube mode rather than shown as broken.
+- Chapters, local subtitle files, bookmark chips and PiP are local-file
+  features and are hidden in YouTube mode rather than shown as broken. The CC
+  button stays, repurposed as the YouTube caption toggle.
 - The 1× lock is best-effort: YouTube decides which rates a video supports.
 - `youtube-nocookie.com` is used as the embed host to reduce cookie writes; if
   Google's player ever refuses it, switch `buildEmbedUrl()` to `www.youtube.com`.

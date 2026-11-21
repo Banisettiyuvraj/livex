@@ -45,7 +45,7 @@ the workspace — no need to find a field.
 | Network | **None.** Zero external requests | Streams from YouTube/Google |
 | Offline | Works | Needs a connection |
 | Anti-skip | Clamped in the playing engine | **Advisory** — the embed is cross-origin; our ceiling only covers our own seek paths |
-| Chapters, subtitles, PiP, bookmarks | Yes | Hidden (local-file features) |
+| Chapters, subtitles, PiP, bookmarks | Yes | Local-file features hidden; **CC** toggles YouTube captions |
 
 The first YouTube paste shows a one-time notice explaining the online behaviour
 before anything is fetched. Local files are never affected by it.

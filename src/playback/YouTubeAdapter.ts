@@ -55,6 +55,10 @@ interface YTPlayerLike {
   mute(): void;
   unMute(): void;
   isMuted(): boolean;
+  /** Caption module controls (present when the iframe API exposes them). */
+  loadModule?(moduleName: string): void;
+  unloadModule?(moduleName: string): void;
+  setOption?(module: string, option: string, value: unknown): void;
   /** Used to rebuild the player at a position after a transient failure. */
   loadVideoById?(options: { videoId: string; startSeconds?: number }): void;
   getVideoData?(): { title?: string; video_id?: string };
@@ -209,6 +213,12 @@ export class YouTubeAdapter implements PlaybackAdapter {
   private lastTime = 0;
   private volume = 1;
   private muted = false;
+  /**
+   * Captions are off by default, unlike YouTube's own player, which may resume
+   * a viewer's caption preference or auto-generate them. The user's CC button
+   * is the only thing that turns them on.
+   */
+  private captionsEnabled = false;
 
   private poll: number | null = null;
   private disposed = false;
@@ -275,6 +285,9 @@ export class YouTubeAdapter implements PlaybackAdapter {
     this.source = parsed.source;
     this.status = "loading";
     this.recoveries = 0;
+    // Every new video starts with captions off; the embed's own default may be
+    // on because of the viewer's YouTube settings.
+    this.captionsEnabled = false;
 
     // The IFrame API drops the `origin` parameter when the page has no http(s)
     // origin (`file://`), and YouTube then refuses to talk to the player. Say so
@@ -612,6 +625,9 @@ export class YouTubeAdapter implements PlaybackAdapter {
     if (state === yt.PlayerState.PLAYING) {
       this.status = "playing";
       this.startPolling();
+      // YouTube can turn captions on when playback starts (account preference
+      // or auto-captions). Re-assert "off" until the user asks for them.
+      if (!this.captionsEnabled) this.applyCaptions(false);
       this.syncOverlay();
       this.emitter.emit("play", { time: this.getCurrentTime() });
       return;
@@ -846,6 +862,37 @@ export class YouTubeAdapter implements PlaybackAdapter {
     return typeof value === "boolean" ? value : this.muted;
   }
 
+  /**
+   * Toggle the iframe's caption module. Best-effort: a video with no caption
+   * tracks still plays, and the button simply has nothing to show.
+   */
+  setCaptionsEnabled(enabled: boolean): void {
+    this.captionsEnabled = enabled;
+    this.applyCaptions(enabled);
+  }
+
+  areCaptionsEnabled(): boolean {
+    return this.captionsEnabled;
+  }
+
+  private applyCaptions(enabled: boolean): void {
+    const player = this.player;
+    if (!player) return;
+    try {
+      if (enabled) {
+        // Re-load the module; YouTube then shows the default/auto track.
+        player.loadModule?.("captions");
+      } else {
+        // Clearing the track covers both uploaded and auto-generated captions;
+        // unloading the module removes the renderer that YouTube auto-starts.
+        player.setOption?.("captions", "track", {});
+        player.unloadModule?.("captions");
+      }
+    } catch {
+      // Caption support varies by video; never let it break playback.
+    }
+  }
+
   isReady(): boolean {
     return this.player !== null && !this.disposed;
   }
@@ -903,6 +950,7 @@ export class YouTubeAdapter implements PlaybackAdapter {
     this.stopAudio();
     this.overlay = null;
     this.status = "empty";
+    this.captionsEnabled = false;
     this.preReadyErrorCode = null;
     this.container.replaceChildren();
   }

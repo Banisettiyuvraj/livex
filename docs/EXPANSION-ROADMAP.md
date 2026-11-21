@@ -249,7 +249,7 @@ record, constraints and non-guarantees: [YOUTUBE-MODE-PLAN.md](./YOUTUBE-MODE-PL
 | Player | `src/playback/YouTubeAdapter.ts` | `PlaybackAdapter` on the IFrame Player API; maps `ENDED`/pause/play, polls position, fails soft offline |
 | Engine swap | `SessionManager.setAdapter()` / `loadYouTube()` | exactly one active engine; engines are long-lived and **not** disposed on swap (doing so broke re-entry), listeners are re-subscribed |
 | Paste + disclosure | `WorkspaceUI.bindYouTubePaste()` | paste anywhere, one-time privacy notice before any Google code loads |
-| Mode chrome | `body.youtube-mode` in `app.css` | local-only controls (chapters, captions, PiP, bookmarks) step aside |
+| Mode chrome | `body.youtube-mode` in `app.css` | local-only controls (chapters, subtitle files, PiP, bookmarks) step aside; the CC button stays and toggles YouTube captions |
 
 **Decisions worth keeping:**
 

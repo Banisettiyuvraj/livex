@@ -276,6 +276,9 @@ export class WorkspaceUI {
     this.syncSessionButtons(state);
     this.syncResumeBanner(state);
     this.syncQueueBadge();
+    // The CC control follows the active engine: local subtitle track or the
+    // YouTube caption module.
+    this.syncSubtitleButton();
     if (state === "ready") this.renderChapters();
     this.syncFocus(state);
   }
@@ -1570,6 +1573,16 @@ export class WorkspaceUI {
     const input = document.getElementById("subtitle-input") as HTMLInputElement | null;
 
     const onButton = (): void => {
+      // YouTube owns its captions behind the iframe: the same CC button toggles
+      // them instead of opening a local .vtt/.srt picker.
+      if (this.adapter.id === "youtube") {
+        const enabled = !(this.adapter.areCaptionsEnabled?.() ?? false);
+        this.adapter.setCaptionsEnabled?.(enabled);
+        this.syncSubtitleButton();
+        this.announce(enabled ? "Captions on." : "Captions off.");
+        return;
+      }
+
       // No track loaded yet → pick a file. Track loaded → toggle visibility.
       if (!this.subtitles.getCurrent()) {
         input?.click();
@@ -1627,6 +1640,20 @@ export class WorkspaceUI {
   private syncSubtitleButton(): void {
     const btn = document.getElementById("subtitle-btn");
     if (!btn) return;
+
+    if (this.adapter.id === "youtube") {
+      const on = this.adapter.areCaptionsEnabled?.() ?? false;
+      btn.setAttribute("aria-pressed", String(on));
+      btn.setAttribute(
+        "aria-label",
+        `Captions ${on ? "on" : "off"}. Click to turn ${on ? "off" : "on"}.`,
+      );
+      btn.title = `YouTube captions — ${on ? "on" : "off"}. Click to toggle.`;
+      btn.classList.toggle("text-accent-purple-light", on);
+      btn.classList.toggle("border", on);
+      btn.classList.toggle("border-accent-purple/50", on);
+      return;
+    }
 
     const info = this.subtitles.getCurrent();
     const on = info !== null && this.subtitles.isToggledOn(this.video);

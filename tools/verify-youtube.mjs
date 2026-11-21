@@ -232,6 +232,39 @@ try {
   check("LIVE badge is shown", badges.live === true);
   check("source chip says YouTube", badges.chip === "YouTube", badges.chip ?? "");
 
+  // --- captions start off and the CC button toggles them --------------------
+  const cc = page.locator("#subtitle-btn");
+  check("CC control is shown in YouTube mode", await cc.isVisible());
+  check(
+    "captions start off",
+    (await cc.getAttribute("aria-pressed")) === "false",
+    await cc.getAttribute("aria-pressed") ?? "",
+  );
+
+  await cc.click();
+  await page.waitForTimeout(600);
+  const captionsOn = await page.evaluate(() => ({
+    state: window.__livex.manager.getAdapter().areCaptionsEnabled?.() ?? false,
+    pressed: document.getElementById("subtitle-btn").getAttribute("aria-pressed"),
+  }));
+  check(
+    "CC turns captions on",
+    captionsOn.state === true && captionsOn.pressed === "true",
+    JSON.stringify(captionsOn),
+  );
+
+  await cc.click();
+  await page.waitForTimeout(600);
+  const captionsOff = await page.evaluate(() => ({
+    state: window.__livex.manager.getAdapter().areCaptionsEnabled?.() ?? false,
+    pressed: document.getElementById("subtitle-btn").getAttribute("aria-pressed"),
+  }));
+  check(
+    "CC turns captions off again",
+    captionsOff.state === false && captionsOff.pressed === "false",
+    JSON.stringify(captionsOff),
+  );
+
   // --- pause / resume through our own controls ------------------------------
   await page.click("#pause-btn");
   await page.waitForTimeout(900);

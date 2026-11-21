@@ -40,6 +40,17 @@ export interface PlaybackAdapter {
   setMuted(muted: boolean): void;
   isMuted(): boolean;
 
+  /**
+   * Optional caption toggle for engines that draw their own captions.
+   *
+   * The native `<video>` path leaves this undefined and uses
+   * `SubtitleService` + a `<track>` instead; YouTube implements it because its
+   * captions live inside the cross-origin iframe and cannot be styled or
+   * tracked by us. Engines may apply it best-effort.
+   */
+  setCaptionsEnabled?(enabled: boolean): void;
+  areCaptionsEnabled?(): boolean;
+
   /** True when the adapter can render (e.g. wasm engine ready). */
   isReady(): boolean;
 

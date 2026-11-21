@@ -332,7 +332,7 @@
     display: none;
   }
 
-  body.youtube-mode #subtitle-btn,
+  /* The CC button stays: it becomes the YouTube caption toggle. */
   body.youtube-mode #pip-btn,
   body.youtube-mode #annotation-bar,
   body.youtube-mode #chapter-bar,
