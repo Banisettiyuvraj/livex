@@ -4,10 +4,10 @@ export function Example() {
   return (
     <TopographicFlow
       animateEntrance={true}
-      scale={480}
+      scale={520}
       density={5}
-      speed={1.5}
-      distortion={2.4}
+      speed={1.2}
+      distortion={1.0}
       lineWidth={1}
       opacity={1}
       dashLength={7}

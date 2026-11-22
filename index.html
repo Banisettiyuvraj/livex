@@ -25,7 +25,7 @@
   <!-- Top Bar -->
   <header class="relative z-20 w-full px-4 pt-3 pointer-events-none flex items-start justify-between">
     <div class="flex items-center gap-2 pointer-events-auto">
-      <button id="menu-btn" class="h-8 w-8 flex items-center justify-center rounded-lg bg-surface border border-border text-neutral-300 tool-btn focus-ring" title="Menu" aria-label="Menu" aria-haspopup="dialog">
+      <button id="menu-btn" class="h-8 w-8 flex items-center justify-center rounded-lg glossy-surface text-neutral-300 tool-btn focus-ring" title="Menu" aria-label="Menu" aria-haspopup="dialog">
         <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5" viewBox="0 0 24 24">
           <line x1="3" x2="21" y1="6" y2="6"></line>
           <line x1="3" x2="21" y1="12" y2="12"></line>
@@ -44,7 +44,7 @@
       </div>
     </div>
 
-    <nav class="pointer-events-auto bg-surface border border-border rounded-xl p-1 flex items-center gap-0.5 text-neutral-400">
+    <nav class="pointer-events-auto glossy-surface rounded-xl p-1 flex items-center gap-0.5 text-neutral-300">
       <button class="tool-btn h-8 px-3 rounded-lg flex items-center gap-2 text-neutral-200 text-xs font-medium focus-ring" id="open-video-btn" title="Open local video (Ctrl+O)">
         <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" viewBox="0 0 24 24">
           <rect height="18" rx="2" width="18" x="3" y="3"></rect>
@@ -55,7 +55,7 @@
         <span class="timecode text-[10px] text-neutral-500 ml-0.5" data-shortcut="mod-o">⌘O</span>
       </button>
 
-      <span class="w-px h-4 bg-border/60 mx-1"></span>
+      <span class="w-px h-4 bg-white/20 mx-1"></span>
 
       <button id="note-btn" class="tool-btn w-8 h-8 rounded-lg flex items-center justify-center focus-ring" title="Add a note at the current time (N)" aria-label="Add note">
         <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" viewBox="0 0 24 24">
@@ -80,7 +80,7 @@
     <div id="session-announcer" class="sr-only-livex" role="status" aria-live="polite" aria-atomic="true"></div>
 
     <!-- STATE: IDLE (Empty workspace) -->
-    <div id="state-idle" class="relative flex flex-col items-center text-center max-w-lg">
+    <div id="state-idle" class="card-glossy relative flex flex-col items-center text-center w-full max-w-xl rounded-2xl sm:rounded-3xl p-6 sm:p-9 pointer-events-auto transition-transform duration-200">
       <!-- The visual drop tile is also the explicit keyboard target, so the
            idle screen has a focusable "browse" entry point of its own. -->
       <button type="button" id="idle-browse-btn" title="Open a video file" aria-label="Open a video file"
@@ -316,7 +316,7 @@
     </div>
 
     <!-- STATE: COMPLETED -->
-    <div id="state-completed" class="hidden flex-col items-center text-center max-w-lg">
+    <div id="state-completed" class="card-glossy hidden flex-col items-center text-center w-full max-w-xl rounded-2xl sm:rounded-3xl p-6 sm:p-9 pointer-events-auto">
       <div class="w-11 h-11 rounded-lg bg-surface border border-border flex items-center justify-center mb-4">
         <svg aria-hidden="true" class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" viewBox="0 0 24 24">
           <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
