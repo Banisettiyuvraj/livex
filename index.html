@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html class="h-full bg-[#121212] select-none" lang="en">
+<html class="h-full bg-black select-none" lang="en">
 <head>
   <meta charset="utf-8"/>
   <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-  <title>Livex - Live Session Simulator</title>
+  <title>Livex — Local lecture player</title>
 
   <!-- Fonts are self-hosted through src/styles/app.css -> @fontsource-free
        defaults; see docs/UPGRADE-AUDIT.md. No external font request. -->
@@ -15,76 +15,57 @@
 
 <body class="h-full w-full overflow-hidden text-neutral-200 antialiased dot-grid-canvas relative font-sans flex flex-col justify-between">
 
+  <!-- Topographic Flow background -->
+  <div id="topographic-background" class="fixed inset-0 pointer-events-none z-0 overflow-hidden" aria-hidden="true"></div>
+
   <!-- Global drag & drop receiver -->
   <!-- Decorative click/DnD surface; keyboard users have the toolbar Open Video button. -->
   <div class="absolute inset-0 z-0 pointer-events-auto" id="drop-target" aria-hidden="true"></div>
 
   <!-- Top Bar -->
   <header class="relative z-20 w-full px-4 pt-3 pointer-events-none flex items-start justify-between">
-    <!-- Top-Left Branding -->
     <div class="flex items-center gap-2 pointer-events-auto">
-      <button id="menu-btn" class="h-9 w-9 flex items-center justify-center rounded-lg bg-surface border border-border text-neutral-300 tool-btn shadow-sm focus-ring" title="Menu" aria-label="Menu" aria-haspopup="dialog">
-        <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" viewBox="0 0 24 24">
+      <button id="menu-btn" class="h-8 w-8 flex items-center justify-center rounded-lg bg-surface border border-border text-neutral-300 tool-btn focus-ring" title="Menu" aria-label="Menu" aria-haspopup="dialog">
+        <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5" viewBox="0 0 24 24">
           <line x1="3" x2="21" y1="6" y2="6"></line>
           <line x1="3" x2="21" y1="12" y2="12"></line>
           <line x1="3" x2="21" y1="18" y2="18"></line>
         </svg>
       </button>
-      <div class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-surface/80 backdrop-blur-sm border border-border/80 text-xs shadow-sm">
-        <svg aria-hidden="true" class="w-3.5 h-3.5 text-accent-purple-light" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" viewBox="0 0 24 24">
-          <polygon points="5 3 19 12 5 21 5 3"></polygon>
-        </svg>
-        <span class="font-medium tracking-tight text-neutral-200">Livex</span>
-        <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-400 border border-neutral-700/60">v1.4</span>
+      <div class="flex items-center gap-2.5 pl-1">
+        <span class="w-6 h-6 rounded-[5px] bg-accent-purple text-[#140a0b] flex items-center justify-center">
+          <svg aria-hidden="true" class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M7 4.5v15l13-7.5-13-7.5Z"></path>
+          </svg>
+        </span>
+        <span class="text-sm font-medium text-neutral-100">Livex</span>
+        <span class="w-px h-3.5 bg-border"></span>
+        <span class="timecode text-[10px] text-neutral-500">v1.4</span>
       </div>
     </div>
 
-    <!-- Top-Center Floating Toolbar -->
-    <nav class="pointer-events-auto bg-surface border border-border rounded-xl p-1 shadow-lg flex items-center gap-0.5 text-neutral-400">
-      <button class="tool-btn w-8 h-8 rounded-lg flex items-center justify-center" title="Pan Canvas — not yet implemented" aria-disabled="true" data-unavailable>
-        <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewBox="0 0 24 24">
-          <path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"></path>
-          <path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"></path>
-          <path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"></path>
-          <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"></path>
+    <nav class="pointer-events-auto bg-surface border border-border rounded-xl p-1 flex items-center gap-0.5 text-neutral-400">
+      <button class="tool-btn h-8 px-3 rounded-lg flex items-center gap-2 text-neutral-200 text-xs font-medium focus-ring" id="open-video-btn" title="Open local video (Ctrl+O)">
+        <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" viewBox="0 0 24 24">
+          <rect height="18" rx="2" width="18" x="3" y="3"></rect>
+          <line x1="3" x2="21" y1="9" y2="9"></line>
+          <polygon points="10 12 15 14.5 10 17 10 12"></polygon>
         </svg>
+        <span>Open video</span>
+        <span class="timecode text-[10px] text-neutral-500 ml-0.5" data-shortcut="mod-o">⌘O</span>
       </button>
 
-      <button class="tool-btn w-8 h-8 rounded-lg flex items-center justify-center" title="Select / Move — not yet implemented" aria-disabled="true" data-unavailable>
-        <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewBox="0 0 24 24">
-          <path d="m3 3 7 18 3-7 7-3L3 3z"></path>
-        </svg>
-      </button>
-
-      <button class="tool-btn h-8 px-2.5 rounded-lg flex items-center gap-1.5 bg-[#dc2626]/20 text-accent-purple-light border border-[#dc2626]/30 font-medium text-xs hover:bg-[#dc2626]/30 focus-ring" id="open-video-btn" title="Open Local Video (⌘O)">
-        <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24">
-          <rect height="20" rx="2.18" width="20" x="2" y="2"></rect>
-          <line x1="7" x2="7" y1="2" y2="22"></line>
-          <line x1="17" x2="17" y1="2" y2="22"></line>
-          <line x1="2" x2="22" y1="12" y2="12"></line>
-        </svg>
-        <span>Open Video</span>
-        <span class="text-[10px] opacity-75 font-mono ml-0.5" data-shortcut="mod-o">⌘O</span>
-      </button>
+      <span class="w-px h-4 bg-border/60 mx-1"></span>
 
       <button id="note-btn" class="tool-btn w-8 h-8 rounded-lg flex items-center justify-center focus-ring" title="Add a note at the current time (N)" aria-label="Add note">
-        <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewBox="0 0 24 24">
+        <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" viewBox="0 0 24 24">
           <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path>
         </svg>
       </button>
 
       <button id="bookmark-btn" class="tool-btn w-8 h-8 rounded-lg flex items-center justify-center focus-ring" title="Bookmark current time (B)" aria-label="Bookmark current time">
-        <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewBox="0 0 24 24">
+        <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" viewBox="0 0 24 24">
           <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"></path>
-        </svg>
-      </button>
-
-      <div class="w-[1px] h-5 bg-border mx-1"></div>
-
-      <button class="tool-btn w-8 h-8 rounded-lg flex items-center justify-center" title="Settings — not yet implemented" aria-disabled="true" data-unavailable>
-        <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewBox="0 0 24 24">
-          <circle cx="12" cy="12" r="3"></circle>
-          <path d="M12 1v6m0 6v6m9-9h-6m-6 0H3"></path>
         </svg>
       </button>
     </nav>
@@ -99,38 +80,34 @@
     <div id="session-announcer" class="sr-only-livex" role="status" aria-live="polite" aria-atomic="true"></div>
 
     <!-- STATE: IDLE (Empty workspace) -->
-    <div id="state-idle" class="relative flex flex-col items-center text-center max-w-lg transition-transform duration-200">
-      <div class="bracket-tl"></div>
-      <div class="bracket-tr"></div>
-      <div class="bracket-bl"></div>
-      <div class="bracket-br"></div>
-
+    <div id="state-idle" class="relative flex flex-col items-center text-center max-w-lg">
       <!-- The visual drop tile is also the explicit keyboard target, so the
            idle screen has a focusable "browse" entry point of its own. -->
       <button type="button" id="idle-browse-btn" title="Open a video file" aria-label="Open a video file"
-              class="w-14 h-14 rounded-2xl bg-surface border border-border flex items-center justify-center mb-5 text-neutral-300 shadow-xl pointer-events-auto cursor-pointer hover:bg-surface-hover transition-colors focus-ring">
-        <svg aria-hidden="true" class="w-7 h-7 stroke-[1.6]" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
-          <rect height="15" rx="2.5" width="20" x="2" y="4.5"></rect>
+              class="relative w-14 h-14 rounded-xl bg-surface border border-border flex items-center justify-center mb-5 text-neutral-200 pointer-events-auto cursor-pointer hover:bg-surface-hover hover:border-neutral-500 transition-colors focus-ring">
+        <span class="absolute top-2 left-2 w-1.5 h-1.5 rounded-[1px] bg-accent-purple" aria-hidden="true"></span>
+        <svg aria-hidden="true" class="w-6 h-6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" viewBox="0 0 24 24">
+          <rect height="15" rx="2" width="20" x="2" y="4.5"></rect>
           <polygon points="10 8.5 15 12 10 15.5 10 8.5"></polygon>
         </svg>
       </button>
 
-      <h1 class="text-xl sm:text-2xl font-medium tracking-tight text-white mb-2">
-        Drop a class video anywhere to begin
+      <h1 class="text-[30px] leading-tight font-medium tracking-tight text-neutral-100 mb-2">
+        Drop a class recording to begin
       </h1>
 
-      <div class="flex items-center gap-1.5 text-sm text-muted-txt mb-6 font-normal">
+      <div class="flex items-center gap-1.5 text-sm text-muted-txt mb-6">
         <span>or press</span>
-        <kbd class="pointer-events-auto inline-flex items-center px-2 py-0.5 rounded-md bg-surface border border-border text-neutral-200 font-mono text-[10px]" data-shortcut="mod-o">⌘O</kbd>
+        <kbd class="pointer-events-auto inline-flex items-center px-2 py-0.5 rounded bg-surface border border-border text-neutral-200 timecode text-[10px]" data-shortcut="mod-o">⌘O</kbd>
         <span>to open a file</span>
       </div>
 
-      <div class="flex items-center gap-2 text-[11px] text-neutral-500 font-mono tracking-wide">
-        <span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500/80"></span>
+      <div class="flex items-center gap-2 text-[11px] text-neutral-500 timecode">
+        <span class="inline-block w-1.5 h-1.5 rounded-[1px] bg-accent-purple" aria-hidden="true"></span>
         <span>Local playback</span>
-        <span class="text-neutral-700">•</span>
-        <span>Zero cloud transit</span>
-        <span class="text-neutral-700">•</span>
+        <span class="text-neutral-700">/</span>
+        <span>No upload</span>
+        <span class="text-neutral-700">/</span>
         <span>.mp4, .mkv, .webm</span>
       </div>
 
@@ -139,38 +116,37 @@
       <div class="w-full max-w-sm mt-8 pointer-events-auto text-left">
         <div class="flex items-center gap-3 mb-3">
           <span class="h-px flex-1 bg-border"></span>
-          <span class="text-[10px] font-mono uppercase tracking-widest text-neutral-500">or a YouTube link</span>
+          <span class="text-[11px] text-neutral-500">or a YouTube link</span>
           <span class="h-px flex-1 bg-border"></span>
         </div>
 
-        <div class="flex items-center gap-2 p-1.5 rounded-xl bg-surface border border-border shadow-lg focus-within:border-accent-purple/60">
-          <svg aria-hidden="true" class="w-4 h-4 ml-1.5 shrink-0 text-red-500/90" fill="currentColor" viewBox="0 0 24 24">
+        <div class="flex items-center gap-2 p-1 rounded-xl bg-surface border border-border focus-within:border-neutral-500">
+          <svg aria-hidden="true" class="w-4 h-4 ml-2 shrink-0 text-neutral-500" fill="currentColor" viewBox="0 0 24 24">
             <path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2C0 8.1 0 12 0 12s0 3.9.5 5.8a3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1c.5-1.9.5-5.8.5-5.8s0-3.9-.5-5.8ZM9.6 15.6V8.4l6.2 3.6-6.2 3.6Z"></path>
           </svg>
           <input id="youtube-input" type="text" inputmode="url" autocomplete="off" spellcheck="false"
                  placeholder="Paste a YouTube link"
                  aria-label="YouTube video link"
-                 class="flex-1 min-w-0 bg-transparent text-sm text-neutral-200 placeholder:text-neutral-600 outline-none py-1.5" />
-          <button id="youtube-paste-btn" class="px-2.5 py-1.5 rounded-lg text-[11px] font-medium text-neutral-300 hover:text-white hover:bg-surface-hover transition-colors focus-ring shrink-0">Paste</button>
-          <button id="youtube-use-btn" class="px-3 py-1.5 rounded-lg bg-[#dc2626]/25 hover:bg-[#dc2626]/40 border border-[#dc2626]/40 text-accent-purple-light text-[11px] font-medium transition-colors focus-ring shrink-0">Go live</button>
+                 class="flex-1 min-w-0 bg-transparent text-[13px] text-neutral-200 placeholder:text-neutral-600 outline-none py-1.5" />
+          <button id="youtube-paste-btn" class="btn-ghost h-8 px-2.5 text-xs shrink-0">Paste</button>
+          <button id="youtube-use-btn" class="btn-primary h-8 min-h-8 px-3 text-xs shrink-0">Go live</button>
         </div>
 
         <p id="youtube-hint" class="hidden mt-2 px-1 text-[11px] text-amber-300/90 leading-relaxed"></p>
 
-        <p class="mt-2 px-1 text-[10px] text-neutral-600 font-mono leading-relaxed">
-          Paste anywhere on the workspace. YouTube links play through Google's embed, so this mode
-          is online — local files stay offline.
+        <p class="mt-2 px-1 text-[11px] text-neutral-500 leading-relaxed">
+          YouTube links play through Google's embed, so this mode is online. Local files stay offline.
         </p>
-        <p id="youtube-busy" class="hidden mt-2 px-1 text-[11px] text-accent-purple-light font-mono">
+        <p id="youtube-busy" class="hidden mt-2 px-1 text-[11px] text-accent-purple-light timecode">
           Connecting to YouTube…
         </p>
       </div>
 
       <!-- Playlist queue (roadmap 2.3) -->
       <div id="playlist-wrap" class="hidden w-full max-w-sm mt-8 pointer-events-auto text-left">
-        <div class="flex items-center justify-between mb-1.5 px-1">
-          <span class="text-[10px] uppercase tracking-wider text-neutral-500 font-medium">Queue</span>
-          <button id="playlist-clear-btn" class="text-[10px] text-neutral-500 hover:text-red-400 transition-colors focus-ring rounded px-1">Clear</button>
+        <div class="flex items-center justify-between mb-2 px-1">
+          <span class="text-[11px] text-neutral-500 font-medium">Queue</span>
+          <button id="playlist-clear-btn" class="text-[11px] text-neutral-500 hover:text-neutral-200 transition-colors focus-ring rounded px-1">Clear</button>
         </div>
         <ol id="playlist-list" class="space-y-1" aria-label="Playback queue"></ol>
       </div>
@@ -178,11 +154,11 @@
       <!-- Recently opened files (metadata only, stored on this device) -->
       <div id="recent-wrap" class="hidden w-full max-w-sm mt-8 pointer-events-auto">
         <div class="flex items-center justify-between mb-2 px-1">
-          <span class="text-[10px] font-mono uppercase tracking-widest text-neutral-500">Continue where you left off</span>
-          <button id="clear-history-btn" class="text-[10px] font-mono text-neutral-600 hover:text-neutral-300 transition-colors focus-ring rounded px-1" title="Forget recent files">Clear</button>
+          <span class="text-[11px] text-neutral-500">Continue where you left off</span>
+          <button id="clear-history-btn" class="text-[11px] text-neutral-500 hover:text-neutral-200 transition-colors focus-ring rounded px-1" title="Forget recent files">Clear</button>
         </div>
         <ul id="recent-list" class="flex flex-col gap-1"></ul>
-        <p class="mt-2 px-1 text-[10px] text-neutral-600 font-mono leading-relaxed">
+        <p class="mt-2 px-1 text-[11px] text-neutral-500 leading-relaxed">
           Only file names and progress are remembered, on this device. Videos are never stored.
         </p>
       </div>
@@ -190,64 +166,52 @@
 
     <!-- STATE: READY (Video loaded, not started) -->
     <div id="state-ready" class="hidden flex-col w-full max-w-4xl pointer-events-auto">
-      <div class="flex items-center justify-between pb-3 px-1">
-        <div class="flex items-center gap-2">
-          <div class="flex items-center gap-1.5 px-2.5 py-1 rounded bg-surface border border-border">
-            <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24">
-              <path d="m16 18 2 2 4-4"></path>
-              <path d="M21 12v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
-            </svg>
-            <span id="filename-ready" class="text-sm font-medium text-neutral-200"></span>
-          </div>
+      <div class="flex items-center justify-between gap-3 pb-3 px-1">
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="w-1.5 h-1.5 rounded-[1px] bg-accent-purple shrink-0" aria-hidden="true"></span>
+          <span id="filename-ready" class="text-xs text-neutral-300 timecode truncate"></span>
         </div>
-        <div class="flex items-center gap-1.5 px-2.5 py-1 rounded bg-surface/80 border border-border text-xs">
-          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse-dot"></span>
-          <span class="font-mono text-neutral-300">Local Buffer Mounted</span>
+        <div class="flex items-center gap-2 shrink-0 text-[11px] text-neutral-500">
+          <span class="w-1.5 h-1.5 rounded-[1px] bg-emerald-400" aria-hidden="true"></span>
+          <span>Ready offline</span>
         </div>
       </div>
 
-      <div class="relative aspect-video w-full rounded-xl overflow-hidden bg-black shadow-2xl">
+      <div class="relative aspect-video w-full rounded-xl overflow-hidden bg-black border border-border/80">
         <video id="video" class="w-full h-full object-contain" playsinline preload="metadata" aria-label="Session video"></video>
-
-        <div class="absolute top-2 left-2 w-2 h-2 rounded-xs bg-accent-purple opacity-80"></div>
-        <div class="absolute top-2 right-2 w-2 h-2 rounded-xs bg-accent-purple opacity-80"></div>
-        <div class="absolute bottom-2 left-2 w-2 h-2 rounded-xs bg-accent-purple opacity-80"></div>
-        <div class="absolute bottom-2 right-2 w-2 h-2 rounded-xs bg-accent-purple opacity-80"></div>
       </div>
 
       <!-- Resume from a previous session (roadmap 2.6). Deliberately an
            explicit choice, never a silent resume. -->
-      <div id="resume-banner" class="hidden mt-4 w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl bg-accent-purple/10 border border-accent-purple/40">
-        <div class="flex items-center gap-2 min-w-0">
-          <svg aria-hidden="true" class="w-4 h-4 text-accent-purple-light shrink-0" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24">
+      <div id="resume-banner" class="hidden mt-4 w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg bg-surface border border-border">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <svg aria-hidden="true" class="w-4 h-4 text-neutral-500 shrink-0" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" viewBox="0 0 24 24">
             <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
             <path d="M3 3v5h5"></path>
           </svg>
-          <span class="text-xs text-neutral-200 truncate">You stopped at <span id="resume-time" class="font-mono text-accent-purple-light">00:00</span>. Resume from there?</span>
+          <span class="text-xs text-neutral-300 truncate">You stopped at <span id="resume-time" class="timecode text-accent-purple-light">00:00</span>. Resume from there?</span>
         </div>
         <div class="flex items-center gap-1.5 shrink-0">
-          <button id="resume-accept-btn" class="px-2.5 py-1 rounded-md bg-accent-purple hover:bg-[#ef4444] text-white text-[11px] font-medium transition-colors focus-ring">Resume</button>
-          <button id="resume-decline-btn" class="px-2 py-1 rounded-md text-[11px] text-neutral-400 hover:text-white transition-colors focus-ring">Start over</button>
+          <button id="resume-accept-btn" class="btn-primary h-8 min-h-8 px-3 text-xs">Resume</button>
+          <button id="resume-decline-btn" class="btn-ghost h-8 min-h-8 px-2.5 text-xs">Start over</button>
         </div>
       </div>
 
-      <div class="mt-6 flex flex-col sm:flex-row items-center justify-between w-full gap-4 p-3 rounded-xl bg-surface border border-border shadow-xl">
+      <div class="mt-4 flex flex-col sm:flex-row items-center justify-between w-full gap-4 p-3 rounded-xl bg-surface border border-border">
         <div class="flex items-center gap-2">
-          <div class="flex items-center px-2.5 py-1.5 rounded-lg bg-canvas text-neutral-300">
-            <span class="text-xs text-muted-txt font-mono mr-1.5">Speed:</span>
-            <span class="text-xs font-mono font-medium">1.0×</span>
-          </div>
+          <span class="text-[11px] text-neutral-500">Speed</span>
+          <span class="timecode text-xs text-neutral-300 px-2 py-1 rounded bg-canvas border border-border">1×</span>
+          <span class="text-[11px] text-neutral-500">locked</span>
         </div>
 
         <div class="flex items-center gap-2">
-          <button id="change-video-btn" class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-canvas hover:bg-surface-hover transition-all focus-ring">
-            <span class="text-sm font-medium">Change</span>
-            <span class="text-[10px] font-mono text-muted-txt" data-shortcut="mod-o">⌘O</span>
+          <button id="change-video-btn" class="btn-secondary h-9">
+            <span>Change file</span>
+            <span class="timecode text-[10px] text-neutral-500" data-shortcut="mod-o">⌘O</span>
           </button>
 
-          <button id="start-session-btn" class="flex items-center gap-2 px-5 py-2 rounded-lg bg-accent-purple hover:bg-[#ef4444] active:scale-[0.98] text-white shadow-md transition-all font-medium focus-ring">
-            <span class="text-sm tracking-tight font-semibold">Start Live Session</span>
-            <span class="text-sm">→</span>
+          <button id="start-session-btn" class="btn-primary h-9">
+            <span>Start session</span>
           </button>
         </div>
       </div>
@@ -255,32 +219,33 @@
 
     <!-- STATE: LIVE / PAUSED (Active session) -->
     <div id="state-active" class="hidden flex-col w-full max-w-5xl pointer-events-auto">
-      <div class="flex items-center justify-between pb-3 px-1">
-        <div class="flex items-center gap-2">
-          <div id="live-badge" class="flex items-center gap-1.5 px-2.5 py-1 rounded bg-live-red/20 border border-live-red">
-            <span class="w-1.5 h-1.5 rounded-full bg-live-red animate-pulse-dot"></span>
-            <span class="text-xs font-bold text-live-red font-mono">LIVE</span>
+      <div class="flex items-center justify-between gap-3 pb-3 px-1">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <div id="live-badge" class="tally">
+            <span class="tally-dot animate-pulse-dot"></span>
+            <span>LIVE</span>
           </div>
-          <div id="paused-badge" class="hidden flex items-center gap-1.5 px-2.5 py-1 rounded bg-neutral-700/50 border border-neutral-600">
-            <span class="text-xs font-bold text-neutral-300 font-mono">PAUSED</span>
+          <div id="paused-badge" class="hidden tally border-neutral-600 bg-neutral-800/60 text-neutral-300">
+            <span class="w-1.5 h-1.5 rounded-[1px] bg-neutral-400"></span>
+            <span>PAUSED</span>
           </div>
-          <span class="text-[10px] text-muted-txt font-mono">Simulated Live</span>
+          <span class="text-[11px] text-neutral-500">1× playback</span>
         </div>
-        <div class="flex items-center gap-2">
-          <span id="source-chip" class="hidden text-[10px] font-mono px-1.5 py-0.5 rounded bg-red-500/15 border border-red-500/40 text-red-300"></span>
-          <span id="queue-badge" class="hidden text-[10px] font-mono px-1.5 py-0.5 rounded bg-surface border border-border text-neutral-400"></span>
-          <span id="filename-active" class="text-xs text-muted-txt font-mono"></span>
+        <div class="flex items-center gap-2.5 min-w-0">
+          <span id="source-chip" class="hidden text-[10px] timecode px-1.5 py-0.5 rounded bg-surface border border-border text-neutral-400"></span>
+          <span id="queue-badge" class="hidden text-[10px] timecode px-1.5 py-0.5 rounded bg-surface border border-border text-neutral-400"></span>
+          <span id="filename-active" class="text-[11px] text-neutral-500 timecode truncate"></span>
         </div>
       </div>
 
-      <div class="relative aspect-video w-full rounded-xl overflow-hidden bg-black shadow-2xl">
+      <div class="relative aspect-video w-full rounded-xl overflow-hidden bg-black border border-border/80">
         <!-- Video is moved here during playback -->
       </div>
 
-      <div id="control-panel" class="mt-3 p-3 rounded-xl bg-surface border border-border shadow-xl">
+      <div id="control-panel" class="mt-3 p-3 rounded-xl bg-surface border border-border">
         <div class="mb-3">
-          <div class="relative w-full h-1 bg-neutral-800 rounded-full cursor-not-allowed">
-            <div id="progress-fill" class="absolute left-0 top-0 bottom-0 w-0 bg-accent-purple rounded-full transition-all duration-300"></div>
+          <div class="relative w-full h-1 bg-border-subtle rounded-full cursor-not-allowed">
+            <div id="progress-fill" class="absolute left-0 top-0 bottom-0 w-0 bg-accent-purple rounded-full"></div>
             <!-- Bookmark/note markers are rendered here -->
             <div id="progress-markers" class="absolute inset-0" aria-hidden="true"></div>
           </div>
@@ -292,56 +257,58 @@
         </div>
 
         <!-- Note transport: shows the note whose timestamp playback just passed -->
-        <div id="note-transport" class="hidden mb-2.5 px-3 py-2 rounded-lg bg-accent-purple/15 border border-accent-purple/40 text-xs text-neutral-200">
-          <div class="flex items-start gap-2">
-            <span class="font-mono text-[10px] text-accent-purple-light mt-0.5 shrink-0" id="note-transport-time">00:00</span>
+        <div id="note-transport" class="hidden mb-2.5 px-3 py-2 rounded-lg bg-canvas border border-border border-l-2 border-l-accent-purple text-xs text-neutral-200">
+          <div class="flex items-start gap-2.5">
+            <span class="timecode text-[10px] text-accent-purple-light mt-0.5 shrink-0" id="note-transport-time">00:00</span>
             <span id="note-transport-text" class="flex-1 leading-snug"></span>
-            <button id="note-transport-close" class="text-muted-txt hover:text-white focus-ring rounded shrink-0" aria-label="Dismiss note">✕</button>
+            <button id="note-transport-close" class="text-neutral-500 hover:text-neutral-200 focus-ring rounded shrink-0 p-0.5" aria-label="Dismiss note">
+              <svg aria-hidden="true" class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5" viewBox="0 0 24 24"><line x1="6" x2="18" y1="6" y2="18"></line><line x1="18" x2="6" y1="6" y2="18"></line></svg>
+            </button>
           </div>
         </div>
 
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-3">
-            <button id="pause-btn" class="w-9 h-9 rounded-lg bg-canvas hover:bg-surface-hover flex items-center justify-center transition-colors focus-ring" aria-label="Pause session">
-              <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div class="flex items-center gap-2.5">
+            <button id="pause-btn" class="w-9 h-9 rounded-lg bg-canvas border border-border hover:bg-surface-hover flex items-center justify-center transition-colors focus-ring" aria-label="Pause session">
+              <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" viewBox="0 0 24 24">
                 <rect x="6" y="4" width="4" height="16"></rect>
                 <rect x="14" y="4" width="4" height="16"></rect>
               </svg>
             </button>
 
-            <button id="resume-btn" class="hidden w-9 h-9 rounded-lg bg-canvas hover:bg-surface-hover flex items-center justify-center transition-colors focus-ring" aria-label="Resume session">
-              <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24">
+            <button id="resume-btn" class="hidden w-9 h-9 rounded-lg bg-canvas border border-border hover:bg-surface-hover flex items-center justify-center transition-colors focus-ring" aria-label="Resume session">
+              <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" viewBox="0 0 24 24">
                 <polygon points="5 3 19 12 5 21 5 3"></polygon>
               </svg>
             </button>
 
-            <button id="time-display" class="text-xs font-mono text-neutral-300 min-w-[110px] text-left rounded px-1 -mx-1 hover:text-white transition-colors focus-ring" title="Click to change time format" aria-label="Playback time, click to change format">00:00 / 00:00</button>
+            <button id="time-display" class="timecode text-xs text-neutral-300 min-w-[110px] text-left rounded px-1 -mx-1 hover:text-white transition-colors focus-ring" title="Click to change time format" aria-label="Playback time, click to change format">00:00 / 00:00</button>
           </div>
 
-          <div class="flex items-center gap-3">
-            <button id="volume-btn" class="w-9 h-9 rounded-lg bg-canvas hover:bg-surface-hover flex items-center justify-center transition-colors focus-ring" aria-label="Mute">
-              <span id="volume-icon" aria-hidden="true">🔊</span>
+          <div class="flex items-center gap-2.5">
+            <button id="volume-btn" class="w-8 h-8 rounded-lg hover:bg-surface-hover flex items-center justify-center transition-colors focus-ring" aria-label="Mute">
+              <span id="volume-icon" aria-hidden="true" class="w-4 h-4 flex items-center justify-center"></span>
             </button>
-            <input id="volume-slider" class="w-20 h-1 cursor-pointer focus-ring" type="range" min="0" max="1" step="0.05" value="1" aria-label="Volume">
-            <button id="pip-btn" class="w-9 h-9 rounded-lg bg-canvas hover:bg-surface-hover flex items-center justify-center transition-colors focus-ring" aria-label="Picture in picture" title="Picture in picture">
-              <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24">
+            <input id="volume-slider" class="range-control w-20 focus-ring" type="range" min="0" max="1" step="0.05" value="1" aria-label="Volume">
+            <button id="pip-btn" class="w-8 h-8 rounded-lg hover:bg-surface-hover flex items-center justify-center transition-colors focus-ring" aria-label="Picture in picture" title="Picture in picture">
+              <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" viewBox="0 0 24 24">
                 <rect x="2" y="4" width="20" height="16" rx="2"></rect>
                 <rect x="12" y="12" width="8" height="6" rx="1"></rect>
               </svg>
             </button>
-            <button id="subtitle-btn" class="w-9 h-9 rounded-lg bg-canvas hover:bg-surface-hover flex items-center justify-center transition-colors focus-ring" aria-label="Load subtitles (.vtt or .srt)" aria-pressed="false" title="Load subtitles (.vtt or .srt)">
-              <span class="font-mono text-[10px] font-bold">CC</span>
+            <button id="subtitle-btn" class="w-8 h-8 rounded-lg hover:bg-surface-hover flex items-center justify-center transition-colors focus-ring" aria-label="Load subtitles (.vtt or .srt)" aria-pressed="false" title="Load subtitles (.vtt or .srt)">
+              <span class="timecode text-[10px] font-medium">CC</span>
             </button>
-            <button id="focus-btn" class="w-9 h-9 rounded-lg bg-canvas hover:bg-surface-hover flex items-center justify-center transition-colors focus-ring" aria-label="Focus mode (Z)" title="Focus mode — hide everything but the video (Z)">
-              <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24">
+            <button id="focus-btn" class="w-8 h-8 rounded-lg hover:bg-surface-hover flex items-center justify-center transition-colors focus-ring" aria-label="Focus mode (Z)" title="Focus mode — hide everything but the video (Z)">
+              <svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" viewBox="0 0 24 24">
                 <path d="M8 3H5a2 2 0 0 0-2 2v3"></path>
                 <path d="M21 8V5a2 2 0 0 0-2-2h-3"></path>
                 <path d="M3 16v3a2 2 0 0 0 2 2h3"></path>
                 <path d="M16 21h3a2 2 0 0 0 2-2v-3"></path>
               </svg>
             </button>
-            <button id="fullscreen-btn" class="w-9 h-9 rounded-lg bg-canvas hover:bg-surface-hover flex items-center justify-center transition-colors focus-ring" aria-label="Fullscreen">
-              <span id="fullscreen-icon" aria-hidden="true">⛶</span>
+            <button id="fullscreen-btn" class="w-8 h-8 rounded-lg hover:bg-surface-hover flex items-center justify-center transition-colors focus-ring" aria-label="Fullscreen">
+              <span id="fullscreen-icon" aria-hidden="true" class="w-4 h-4 flex items-center justify-center"></span>
             </button>
           </div>
         </div>
@@ -350,61 +317,163 @@
 
     <!-- STATE: COMPLETED -->
     <div id="state-completed" class="hidden flex-col items-center text-center max-w-lg">
-      <div class="w-16 h-16 rounded-2xl bg-emerald-500/20 border border-emerald-500/50 flex items-center justify-center mb-5">
-        <svg aria-hidden="true" class="w-8 h-8 text-emerald-400" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24">
+      <div class="w-11 h-11 rounded-lg bg-surface border border-border flex items-center justify-center mb-4">
+        <svg aria-hidden="true" class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" viewBox="0 0 24 24">
           <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
           <polyline points="22 4 12 14.01 9 11.01"></polyline>
         </svg>
       </div>
 
-      <h2 class="text-2xl font-semibold text-emerald-400 mb-2">Session Completed</h2>
-      <p class="text-sm text-muted-txt mb-5">You've reached the end of the video</p>
+      <h2 class="text-2xl font-medium tracking-tight text-neutral-100 mb-2">Lecture complete</h2>
+      <p class="text-sm text-muted-txt mb-5">The recording ended. Your marks are ready for review.</p>
 
       <!-- Playback integrity summary (roadmap 2.1) -->
-      <div id="integrity-summary" class="w-full rounded-xl border border-border bg-surface/70 px-4 py-3 mb-5">
-        <p class="text-[10px] uppercase tracking-wider text-neutral-500 mb-2 font-medium">This session</p>
+      <div id="integrity-summary" class="w-full rounded-xl border border-border bg-surface px-4 py-3 mb-5 text-left">
+        <p class="text-[11px] text-neutral-500 mb-2">This session</p>
         <dl class="grid grid-cols-3 gap-2 text-center">
           <div>
-            <dt class="text-[10px] text-neutral-500 mb-0.5">Watched</dt>
-            <dd id="integrity-watched" class="font-mono text-sm text-emerald-400">0%</dd>
+            <dt class="text-[11px] text-neutral-500 mb-0.5">Watched</dt>
+            <dd id="integrity-watched" class="timecode text-sm text-emerald-400">0%</dd>
           </div>
           <div>
-            <dt class="text-[10px] text-neutral-500 mb-0.5">Skip attempts</dt>
-            <dd id="integrity-skips" class="font-mono text-sm text-neutral-200">0</dd>
+            <dt class="text-[11px] text-neutral-500 mb-0.5">Skip attempts</dt>
+            <dd id="integrity-skips" class="timecode text-sm text-neutral-200">0</dd>
           </div>
           <div>
-            <dt class="text-[10px] text-neutral-500 mb-0.5">Longest stretch</dt>
-            <dd id="integrity-stretch" class="font-mono text-sm text-neutral-200">0m</dd>
+            <dt class="text-[11px] text-neutral-500 mb-0.5">Longest stretch</dt>
+            <dd id="integrity-stretch" class="timecode text-sm text-neutral-200">0m</dd>
           </div>
         </dl>
       </div>
 
-      <div class="flex items-center gap-2">
-        <button id="next-in-queue-btn" class="hidden items-center gap-2 px-5 py-2.5 rounded-lg bg-accent-purple hover:bg-[#ef4444] text-white font-medium transition-all pointer-events-auto focus-ring">
+      <div class="flex flex-wrap items-center justify-center gap-2">
+        <button id="review-session-btn" class="btn-primary pointer-events-auto">
+          <span>Review saved moments</span>
+        </button>
+        <button id="next-in-queue-btn" class="btn-secondary hidden pointer-events-auto">
           <span>Next in queue</span>
-          <span class="text-sm">→</span>
         </button>
-        <button id="open-another-btn" class="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-canvas border border-border hover:bg-surface-hover text-neutral-200 font-medium transition-all pointer-events-auto focus-ring">
-          <span>Open Another Video</span>
+        <button id="open-another-btn" class="btn-secondary pointer-events-auto">
+          <span>Open another</span>
         </button>
+      </div>
+    </div>
+
+    <!-- STATE: REVIEW (post-session; separate from the live controls) -->
+    <div id="state-review" class="hidden flex-col w-full max-w-6xl pointer-events-auto">
+      <div class="flex items-center justify-between gap-3 pb-3 px-1">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <span class="tally shrink-0">
+            <span class="tally-dot"></span>
+            <span>Review</span>
+          </span>
+          <span class="text-[11px] text-neutral-500 truncate">Free seek and playback</span>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <span id="review-filename" class="hidden sm:block text-[11px] text-neutral-500 timecode truncate max-w-[240px]"></span>
+          <button id="review-exit-btn" type="button" class="btn-secondary h-8 min-h-8 px-3 text-xs">Exit review</button>
+        </div>
+      </div>
+
+      <!-- Review setup: saved moments on the right, the review rules on the left. -->
+      <div id="review-setup" class="rounded-xl bg-surface border border-border p-5 text-left">
+        <div class="review-layout">
+          <div>
+            <h2 class="text-xl font-medium tracking-tight text-neutral-100 mb-2">Review saved moments</h2>
+            <p class="text-[13px] text-muted-txt leading-5">
+              Pick the timestamps to revisit. Each becomes a 30-second section in the queue.
+              Review runs separately from the completed session, so seeking and playback are free.
+            </p>
+            <dl class="mt-5 grid grid-cols-2 gap-2">
+              <div class="rounded-lg border border-border bg-canvas px-3 py-2.5">
+                <dt class="text-[10px] text-neutral-500 mb-1">Section</dt>
+                <dd class="timecode text-sm text-neutral-200">30 sec</dd>
+              </div>
+              <div class="rounded-lg border border-border bg-canvas px-3 py-2.5">
+                <dt class="text-[10px] text-neutral-500 mb-1">Playback</dt>
+                <dd class="timecode text-sm text-neutral-200">Free</dd>
+              </div>
+            </dl>
+          </div>
+
+          <div class="min-w-0">
+            <div id="review-empty" class="hidden rounded-lg border border-border bg-canvas px-4 py-5 text-center">
+              <p class="text-sm text-neutral-300 mb-1">No bookmarks or notes for this lecture.</p>
+              <p class="text-xs text-neutral-500">Add them during a lecture with <span class="timecode text-neutral-300">B</span> and <span class="timecode text-neutral-300">N</span>, then review them after it ends.</p>
+            </div>
+
+            <ul id="review-list" class="space-y-1.5 max-h-72 overflow-y-auto pr-1" aria-label="Bookmarks and notes available for review"></ul>
+
+            <div class="flex flex-wrap items-center gap-2 mt-4 pt-3 border-t border-border">
+              <button id="review-select-all-btn" type="button" class="btn-ghost h-8 min-h-8 px-2.5 text-xs">Select all</button>
+              <button id="review-clear-selection-btn" type="button" class="btn-ghost h-8 min-h-8 px-2.5 text-xs">Clear</button>
+              <span id="review-selection-count" class="timecode text-[10px] text-neutral-500 ml-auto">0 selected</span>
+              <button id="review-start-btn" type="button" disabled class="btn-primary">Start review</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Review player: queue rail on the left, current section on the stage. -->
+      <div id="review-player" class="hidden review-layout">
+        <aside class="review-rail">
+          <div class="flex items-center justify-between gap-2 mb-3">
+            <span class="section-label">Review queue</span>
+            <span id="review-queue-count" class="timecode text-[10px] text-neutral-500">0 of 0</span>
+          </div>
+
+          <ol id="review-queue-list" class="space-y-1" aria-label="Review queue"></ol>
+
+          <button id="review-change-btn" type="button" class="btn-secondary w-full h-8 min-h-8 px-3 text-xs mt-3">Change selection</button>
+
+          <p id="review-status" class="text-[11px] text-accent-purple-light mt-3 min-h-[1rem] leading-relaxed" role="status" aria-live="polite"></p>
+        </aside>
+
+        <div class="review-stage">
+          <div id="review-video-slot" class="review-video"></div>
+
+          <div class="review-controls">
+            <div class="mb-3">
+              <div class="flex items-center gap-2 mb-1.5">
+                <span id="review-item-kind" class="section-label">Bookmark</span>
+                <span id="review-item-range" class="timecode-stamp">00:00 – 00:30</span>
+              </div>
+              <p id="review-item-text" class="text-[15px] text-neutral-100 leading-snug truncate"></p>
+            </div>
+
+            <input id="review-seek" type="range" min="0" max="30" step="0.1" value="0"
+                   class="range-control w-full focus-ring" aria-label="Position within review section">
+
+            <div class="flex items-center justify-between mt-1 mb-3 text-[10px] text-neutral-500 timecode">
+              <span id="review-position">00:00 / 00:30</span>
+              <span>30-second section</span>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+              <button id="review-prev-btn" type="button" class="btn-secondary h-9">Previous</button>
+              <button id="review-play-btn" type="button" class="btn-primary h-9 min-w-[78px]">Play</button>
+              <button id="review-next-btn" type="button" class="btn-secondary h-9">Next</button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
     <!-- STATE: ERROR -->
     <div id="state-error" class="hidden flex-col items-center text-center max-w-lg">
-      <div class="w-16 h-16 rounded-2xl bg-red-500/20 border border-red-500/50 flex items-center justify-center mb-5">
-        <svg aria-hidden="true" class="w-8 h-8 text-red-400" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24">
+      <div class="w-11 h-11 rounded-lg bg-surface border border-border flex items-center justify-center mb-4">
+        <svg aria-hidden="true" class="w-5 h-5 text-accent-purple" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" viewBox="0 0 24 24">
           <circle cx="12" cy="12" r="10"></circle>
           <line x1="15" y1="9" x2="9" y2="15"></line>
           <line x1="9" y1="9" x2="15" y2="15"></line>
         </svg>
       </div>
 
-      <h2 id="error-heading" class="text-xl font-semibold text-red-400 mb-2">Playback Stopped</h2>
+      <h2 id="error-heading" class="text-xl font-medium text-neutral-100 mb-2">Playback stopped</h2>
       <p id="error-message-text" class="text-sm text-muted-txt mb-6">This video could not be played.</p>
 
-      <button id="try-another-btn" class="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-accent-purple hover:bg-[#ef4444] text-white font-medium transition-all pointer-events-auto focus-ring">
-        <span>Try Another Video</span>
+      <button id="try-another-btn" class="btn-primary pointer-events-auto">
+        <span>Try another</span>
       </button>
     </div>
 
@@ -413,33 +482,17 @@
   <!-- Focus mode overlay (roadmap 2.4): the only chrome visible when active -->
   <div id="focus-overlay" class="hidden fixed inset-x-0 bottom-0 z-40 px-5 pb-5 pointer-events-none">
     <div class="flex items-center justify-center">
-      <div class="pointer-events-auto flex items-center gap-3 px-4 py-2 rounded-full bg-black/70 border border-border backdrop-blur-sm opacity-40 hover:opacity-100 transition-opacity">
-        <span id="focus-time" class="font-mono text-sm text-neutral-200">00:00 / 00:00</span>
-        <span class="w-px h-4 bg-border"></span>
+      <div class="pointer-events-auto flex items-center gap-3 px-3 py-1.5 rounded-lg bg-black/70 border border-border opacity-50 hover:opacity-100 transition-opacity">
+        <span id="focus-time" class="timecode text-xs text-neutral-200">00:00 / 00:00</span>
+        <span class="w-px h-3.5 bg-border"></span>
         <span class="text-[10px] text-neutral-500">Z or Esc to exit focus mode</span>
       </div>
     </div>
   </div>
 
-  <!-- Bottom Utility Controls -->
-  <footer class="relative z-20 w-full px-4 pb-4 pointer-events-none flex items-end justify-between">
-    <div class="pointer-events-auto bg-surface border border-border rounded-xl p-1 shadow-lg flex items-center gap-1 text-neutral-400">
-      <button class="tool-btn w-7 h-7 rounded-lg flex items-center justify-center text-xs" title="Zoom out — not yet implemented" aria-disabled="true" data-unavailable>
-        <svg aria-hidden="true" class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" viewBox="0 0 24 24">
-          <line x1="5" x2="19" y1="12" y2="12"></line>
-        </svg>
-      </button>
-      <button class="tool-btn px-2 h-7 rounded-lg text-xs font-mono font-medium text-neutral-300" title="Zoom level — not yet implemented" aria-disabled="true" data-unavailable>100%</button>
-      <button class="tool-btn w-7 h-7 rounded-lg flex items-center justify-center text-xs" title="Zoom in — not yet implemented" aria-disabled="true" data-unavailable>
-        <svg aria-hidden="true" class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" viewBox="0 0 24 24">
-          <line x1="12" x2="12" y1="5" y2="19"></line>
-          <line x1="5" x2="19" y1="12" y2="12"></line>
-        </svg>
-      </button>
-    </div>
-
-    <div class="pointer-events-auto text-[10px] text-neutral-600 font-mono">
-      Based on <a href="https://github.com/syedmugheessali/localplay" target="_blank" class="text-accent-purple hover:underline">LocalPlay</a> (MIT)
+  <footer class="relative z-20 w-full px-4 pb-4 pointer-events-none flex items-end justify-end">
+    <div class="pointer-events-auto text-[10px] text-neutral-600 timecode">
+      Based on <a href="https://github.com/syedmugheessali/localplay" target="_blank" class="text-neutral-400 hover:text-neutral-200 hover:underline">LocalPlay</a> (MIT)
     </div>
   </footer>
 
@@ -447,8 +500,10 @@
   <!-- ===== Shortcuts dialog (?) ===== -->
   <dialog id="shortcuts-dialog" class="livex-dialog" aria-labelledby="shortcuts-title">
     <div class="flex items-center justify-between mb-4">
-      <h2 id="shortcuts-title" class="text-sm font-semibold text-white">Keyboard shortcuts</h2>
-      <button class="dialog-close text-muted-txt hover:text-white focus-ring rounded px-1" aria-label="Close">✕</button>
+      <h2 id="shortcuts-title" class="text-sm font-medium text-neutral-100">Keyboard shortcuts</h2>
+      <button class="dialog-close text-neutral-500 hover:text-neutral-100 focus-ring rounded p-0.5" aria-label="Close">
+        <svg aria-hidden="true" class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5" viewBox="0 0 24 24"><line x1="6" x2="18" y1="6" y2="18"></line><line x1="18" x2="6" y1="6" y2="18"></line></svg>
+      </button>
     </div>
     <dl class="grid grid-cols-[auto,1fr] gap-x-4 gap-y-2 text-xs">
       <dt class="font-mono text-accent-purple-light">Space</dt><dd class="text-neutral-300">Play / pause</dd>
@@ -476,8 +531,10 @@
   <!-- ===== About dialog ===== -->
   <dialog id="about-dialog" class="livex-dialog" aria-labelledby="about-title">
     <div class="flex items-center justify-between mb-4">
-      <h2 id="about-title" class="text-sm font-semibold text-white">About LiveX</h2>
-      <button class="dialog-close text-muted-txt hover:text-white focus-ring rounded px-1" aria-label="Close">✕</button>
+      <h2 id="about-title" class="text-sm font-medium text-neutral-100">About Livex</h2>
+      <button class="dialog-close text-neutral-500 hover:text-neutral-100 focus-ring rounded p-0.5" aria-label="Close">
+        <svg aria-hidden="true" class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5" viewBox="0 0 24 24"><line x1="6" x2="18" y1="6" y2="18"></line><line x1="18" x2="6" y1="6" y2="18"></line></svg>
+      </button>
     </div>
     <p class="text-xs text-neutral-300 leading-relaxed mb-3">
       A local-first simulated live session player. Videos are opened with the
@@ -491,7 +548,7 @@
     </ul>
     <!-- Local watching statistics (roadmap 2.2). Computed on the device. -->
     <div id="analytics-panel" class="rounded-lg border border-border bg-canvas/60 px-3 py-2.5 mb-4">
-      <p class="text-[10px] uppercase tracking-wider text-neutral-500 mb-2 font-medium">Your watching</p>
+      <p class="text-[11px] text-neutral-500 mb-2">Your watching</p>
       <dl class="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]">
         <div class="flex items-center justify-between"><dt class="text-neutral-500">Files</dt><dd id="analytics-files" class="font-mono text-neutral-200">0</dd></div>
         <div class="flex items-center justify-between"><dt class="text-neutral-500">Finished</dt><dd id="analytics-completed" class="font-mono text-neutral-200">0</dd></div>
@@ -512,7 +569,7 @@
               class="hidden w-full h-28 mb-4 rounded-lg border border-border bg-canvas/60 p-2 font-mono text-[10px] text-neutral-300 resize-none"></textarea>
 
     <div class="flex items-center gap-2">
-      <button id="clear-all-data-btn" class="px-3 py-1.5 rounded-lg bg-red-500/15 border border-red-500/40 text-red-300 text-xs font-medium hover:bg-red-500/25 transition-colors focus-ring">
+      <button id="clear-all-data-btn" class="btn-secondary text-accent-purple-light">
         Clear saved data
       </button>
       <span class="text-[10px] text-neutral-600">History and notes only — never videos</span>
@@ -537,8 +594,8 @@
       Local files are unaffected: they never leave your device and still work fully offline.
     </p>
     <div class="flex items-center justify-end gap-2">
-      <button id="youtube-consent-cancel" class="px-3 py-1.5 rounded-lg text-xs text-neutral-400 hover:text-white transition-colors focus-ring">Cancel</button>
-      <button id="youtube-consent-continue" class="px-3 py-1.5 rounded-lg bg-[#dc2626] hover:bg-[#ef4444] text-white text-xs font-medium transition-colors focus-ring">Continue</button>
+      <button id="youtube-consent-cancel" class="btn-ghost h-8 min-h-8 px-3 text-xs">Cancel</button>
+      <button id="youtube-consent-continue" class="btn-primary h-8 min-h-8 px-3 text-xs">Continue</button>
     </div>
   </dialog>
 

@@ -19,6 +19,7 @@ import type { AnnotationService } from "../session/AnnotationService";
 import { PlaylistService } from "../session/PlaylistService";
 import { SubtitleService } from "../session/SubtitleService";
 import { AnalyticsService } from "../session/AnalyticsService";
+import { REVIEW_WINDOW_SECONDS, buildReviewQueue, type ReviewItem } from "../session/ReviewQueue";
 import { readChapters, type Chapter } from "../files/ChapterReader";
 import type { Annotation, HistoryEntry } from "../files/LocalMetadataStore";
 import { PlaybackError } from "../playback/PlaybackErrors";
@@ -87,6 +88,7 @@ export class WorkspaceUI {
   private readonly video: HTMLVideoElement;
 
   private readonly screens: Record<SessionState, HTMLElement>;
+  private readonly reviewScreen: HTMLElement;
   private readonly cleanups: Array<() => void> = [];
   private lastFileSummary = "";
 
@@ -108,6 +110,14 @@ export class WorkspaceUI {
   private chapters: Chapter[] = [];
   private timeMode: TimeDisplayMode = "elapsed";
   private noteComposerOpen = false;
+  /** Post-session review is separate from the live state machine. */
+  private reviewMode = false;
+  private reviewActive = false;
+  private reviewFinished = false;
+  private reviewItems: ReviewItem[] = [];
+  private reviewIndex = 0;
+  private reviewSelected = new Set<string>();
+  private reviewSectionEnding = false;
   /** Where a half-watched file was left, offered on the ready screen (2.6). */
   private pendingResume: number | null = null;
   private focusMode = false;
@@ -138,6 +148,7 @@ export class WorkspaceUI {
       completed: el("state-completed"),
       error: el("state-error"),
     };
+    this.reviewScreen = el("state-review");
 
     const video = document.getElementById("video");
     if (!(video instanceof HTMLVideoElement)) {
@@ -155,6 +166,7 @@ export class WorkspaceUI {
     this.bindLifecycle();
     this.bindHistory();
     this.bindAnnotations();
+    this.bindReview();
     this.bindResume();
     this.bindPlaylist();
     this.bindSubtitles();
@@ -206,11 +218,18 @@ export class WorkspaceUI {
   private bindManager(): void {
     this.cleanups.push(
       this.manager.onSessionChange(({ state, previous }) => {
+        // Any real session transition ends review mode first. Review playback
+        // itself never changes the session state, so this only happens on an
+        // error or a replacement file.
+        if (this.reviewMode) this.closeReview();
         this.render(state);
         this.announceState(state, previous);
         this.onSessionStateForPersistence(state);
       }),
       this.manager.onProgress((progress) => {
+        // Review mode drives the same element directly. Keep its position out
+        // of the live progress UI and out of local history/analytics.
+        if (this.reviewMode) return;
         this.renderProgress(progress);
         // Throttled internally, so this is safe on every tick.
         this.history.recordProgress(progress.currentTime, progress.furthestTime);
@@ -231,7 +250,7 @@ export class WorkspaceUI {
 
     const messages: Record<SessionState, string> = {
       idle: "No video selected.",
-      ready: "Video ready. Press Start Live Session to begin.",
+      ready: "Video ready. Press Start session to begin.",
       live: "Session live. Playback started.",
       paused: "Session paused.",
       completed: "Session completed. You reached the end of the video.",
@@ -242,6 +261,7 @@ export class WorkspaceUI {
   }
 
   private render(state: SessionState): void {
+    if (this.reviewMode) this.closeReview();
     const keys: SessionState[] = ["idle", "ready", "live", "paused", "completed", "error"];
     const visible = new Set<HTMLElement>();
 
@@ -279,6 +299,7 @@ export class WorkspaceUI {
     // The CC control follows the active engine: local subtitle track or the
     // YouTube caption module.
     this.syncSubtitleButton();
+    this.syncReviewAffordance();
     if (state === "ready") this.renderChapters();
     this.syncFocus(state);
   }
@@ -776,7 +797,7 @@ export class WorkspaceUI {
       await this.manager.loadYouTube(input);
       if (loadToken !== this.youtubeLoadToken) return;
       const title = this.manager.getSnapshot().metadata?.fileName ?? "YouTube video";
-      this.announce(`${title} loaded. Press Start Live Session to go live.`);
+      this.announce(`${title} loaded. Press Start session to go live.`);
     } catch (error) {
       // A superseded attempt must stay silent: the newer load owns the screen.
       if (loadToken !== this.youtubeLoadToken) return;
@@ -911,6 +932,10 @@ export class WorkspaceUI {
 
   /** Probe → load → ready, with friendly failures at each step. */
   private async handleFile(file: File): Promise<void> {
+    // Opening a file always leaves review mode; the review queue belongs to the
+    // previous lecture. The state machine still decides the next screen.
+    if (this.reviewMode) this.closeReview();
+
     // Choosing a local file leaves YouTube mode entirely: the embed is removed
     // and the native <video> takes the slot back.
     this.clearYouTube();
@@ -1063,8 +1088,21 @@ export class WorkspaceUI {
       pipBtn.setAttribute("aria-disabled", "true");
     }
 
+    const volumeSvg = (state: "muted" | "low" | "high"): string => {
+      const speaker = `<path d="M11 5 6 9H3v6h3l5 4V5Z"></path>`;
+      const waves =
+        state === "muted"
+          ? `<line x1="16" x2="22" y1="9" y2="15"></line><line x1="22" x2="16" y1="9" y2="15"></line>`
+          : state === "low"
+            ? `<path d="M15.5 8.5a5 5 0 0 1 0 7"></path>`
+            : `<path d="M15.5 8.5a5 5 0 0 1 0 7"></path><path d="M18.5 5.5a9 9 0 0 1 0 13"></path>`;
+      return `<svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" viewBox="0 0 24 24">${speaker}${waves}</svg>`;
+    };
+
     const renderVolume = (volume: number, muted: boolean): void => {
-      volumeIcon.textContent = muted || volume === 0 ? "🔇" : volume < 0.5 ? "🔉" : "🔊";
+      volumeIcon.innerHTML = volumeSvg(
+        muted || volume === 0 ? "muted" : volume < 0.5 ? "low" : "high",
+      );
       const label = muted ? "Unmute" : "Mute";
       volumeBtn.title = label;
       volumeBtn.setAttribute("aria-label", label);
@@ -1099,7 +1137,10 @@ export class WorkspaceUI {
       const isFullscreen = Boolean(
         document.fullscreenElement || document.webkitFullscreenElement,
       );
-      fullscreenIcon.textContent = isFullscreen ? "✕" : "⛶";
+      const paths = isFullscreen
+        ? `<path d="M8 3v3a2 2 0 0 1-2 2H3"></path><path d="M21 8h-3a2 2 0 0 1-2-2V3"></path><path d="M3 16h3a2 2 0 0 1 2 2v3"></path><path d="M16 21v-3a2 2 0 0 1 2-2h3"></path>`
+        : `<path d="M8 3H5a2 2 0 0 0-2 2v3"></path><path d="M21 8V5a2 2 0 0 0-2-2h-3"></path><path d="M3 16v3a2 2 0 0 0 2 2h3"></path><path d="M16 21h3a2 2 0 0 0 2-2v-3"></path>`;
+      fullscreenIcon.innerHTML = `<svg aria-hidden="true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" viewBox="0 0 24 24">${paths}</svg>`;
       const label = isFullscreen ? "Exit fullscreen" : "Fullscreen";
       fullscreenBtn.title = label;
       fullscreenBtn.setAttribute("aria-label", label);
@@ -1144,6 +1185,13 @@ export class WorkspaceUI {
       // Never steal keys from a text field, dialog or focused button.
       if (this.isTypingTarget(event.target)) return;
       if (event.target instanceof HTMLButtonElement && event.code === "Space") return;
+
+      // Review is a separate mode. Its keys must not fall through to live
+      // session handlers (B/N bookmarks, focus mode, anti-skip nudges).
+      if (this.reviewMode) {
+        this.handleReviewKey(event);
+        return;
+      }
 
       const state = this.manager.getState();
       const active = state === "live" || state === "paused";
@@ -1262,12 +1310,12 @@ export class WorkspaceUI {
     const closeNote = document.getElementById("note-transport-close");
 
     const onBookmark = (): void => {
-      if (!this.annotations.hasMedia()) return;
+      if (this.reviewMode || !this.annotations.hasMedia()) return;
       void this.annotations.add("bookmark", this.manager.getProgress().currentTime);
     };
 
     const onNote = (): void => {
-      if (!this.annotations.hasMedia()) return;
+      if (this.reviewMode || !this.annotations.hasMedia()) return;
       this.openNoteComposer();
     };
 
@@ -1280,6 +1328,13 @@ export class WorkspaceUI {
       () => noteBtn?.removeEventListener("click", onNote),
       this.annotations.onAnnotationsChange((annotations) => {
         this.renderAnnotations(annotations);
+        if (this.reviewMode && !this.reviewActive) {
+          const valid = new Set(annotations.map((annotation) => annotation.id));
+          for (const id of this.reviewSelected) {
+            if (!valid.has(id)) this.reviewSelected.delete(id);
+          }
+          this.renderReviewSetup();
+        }
       }),
       this.annotations.onNoteCrossed((annotation) => {
         this.showNoteTransport(annotation);
@@ -1308,10 +1363,13 @@ export class WorkspaceUI {
           ? `Bookmark at ${formatTime(annotation.time)} — click to jump back`
           : `${formatTime(annotation.time)} — ${annotation.text}\nClick to jump back`;
 
+      const tally = document.createElement("span");
+      tally.className = "w-1.5 h-1.5 rounded-[1px] bg-current shrink-0";
+      tally.setAttribute("aria-hidden", "true");
+
       const timeLabel = document.createElement("span");
-      timeLabel.textContent =
-        annotation.kind === "bookmark" ? `★ ${formatTime(annotation.time)}` : `✎ ${formatTime(annotation.time)}`;
-      chip.append(timeLabel);
+      timeLabel.textContent = formatTime(annotation.time);
+      chip.append(tally, timeLabel);
 
       chip.addEventListener("click", () => {
         // Bookmark clicks are rewind-or-equal jumps, so anti-skip allows them.
@@ -1323,8 +1381,9 @@ export class WorkspaceUI {
       const remove = document.createElement("span");
       remove.setAttribute("role", "button");
       remove.tabIndex = -1;
-      remove.className = "ml-0.5 text-neutral-500 hover:text-red-400";
-      remove.textContent = "✕";
+      remove.className = "ml-0.5 text-neutral-500 hover:text-neutral-200 inline-flex items-center";
+      remove.innerHTML =
+        `<svg aria-hidden="true" class="w-3 h-3" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5" viewBox="0 0 24 24"><line x1="6" x2="18" y1="6" y2="18"></line><line x1="18" x2="6" y1="6" y2="18"></line></svg>`;
       remove.title = "Delete";
       remove.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -1446,6 +1505,504 @@ export class WorkspaceUI {
 
   private hideNoteTransport(): void {
     document.getElementById("note-transport")?.classList.add("hidden");
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Lecture review mode                                              */
+  /* ---------------------------------------------------------------- */
+
+  /** Hide review for YouTube, whose completions have no local annotations. */
+  private syncReviewAffordance(): void {
+    const button = document.getElementById("review-session-btn");
+    if (!button) return;
+    button.classList.toggle("hidden", this.isYouTubeEngine());
+  }
+
+  private bindReview(): void {
+    const open = document.getElementById("review-session-btn");
+    const exit = document.getElementById("review-exit-btn");
+    const selectAll = document.getElementById("review-select-all-btn");
+    const clear = document.getElementById("review-clear-selection-btn");
+    const start = document.getElementById("review-start-btn");
+    const prev = document.getElementById("review-prev-btn");
+    const play = document.getElementById("review-play-btn");
+    const next = document.getElementById("review-next-btn");
+    const change = document.getElementById("review-change-btn");
+    const seek = document.getElementById("review-seek") as HTMLInputElement | null;
+
+    const onOpen = (): void => this.openReview();
+    const onExit = (): void => this.exitReview();
+    const onSelectAll = (): void => this.selectAllReviewAnnotations(true);
+    const onClear = (): void => this.selectAllReviewAnnotations(false);
+    const onStart = (): void => this.startReview();
+    const onPrev = (): void => this.moveReview(-1);
+    const onPlay = (): void => this.toggleReviewPlayback();
+    const onNext = (): void => this.moveReview(1);
+    const onChange = (): void => this.changeReviewSelection();
+    const onSeek = (): void => {
+      if (!seek) return;
+      const item = this.reviewItems[this.reviewIndex];
+      if (!item) return;
+      const span = Math.max(0.1, item.end - item.start);
+      const relative = Math.max(0, Math.min(span, Number(seek.value)));
+      this.video.currentTime = item.start + relative;
+      this.reviewFinished = false;
+      this.reviewActive = true;
+      this.updateReviewProgress();
+    };
+
+    // Review playback drives the element directly. It never calls
+    // SessionManager, which is what keeps anti-skip and the 1× lock out of it.
+    const onTimeUpdate = (): void => {
+      if (!this.reviewMode || !this.reviewActive) return;
+      this.updateReviewProgress();
+      const item = this.reviewItems[this.reviewIndex];
+      if (!item || this.video.paused) return;
+      if (this.video.currentTime >= item.end - 0.08) this.finishReviewItem();
+    };
+    const onEnded = (): void => {
+      if (this.reviewMode && this.reviewActive) this.finishReviewItem();
+    };
+    const syncTransport = (): void => {
+      if (this.reviewMode) this.syncReviewButtons();
+    };
+
+    open?.addEventListener("click", onOpen);
+    exit?.addEventListener("click", onExit);
+    selectAll?.addEventListener("click", onSelectAll);
+    clear?.addEventListener("click", onClear);
+    start?.addEventListener("click", onStart);
+    prev?.addEventListener("click", onPrev);
+    play?.addEventListener("click", onPlay);
+    next?.addEventListener("click", onNext);
+    change?.addEventListener("click", onChange);
+    seek?.addEventListener("input", onSeek);
+    this.video.addEventListener("timeupdate", onTimeUpdate);
+    this.video.addEventListener("ended", onEnded);
+    this.video.addEventListener("play", syncTransport);
+    this.video.addEventListener("pause", syncTransport);
+
+    this.cleanups.push(
+      () => open?.removeEventListener("click", onOpen),
+      () => exit?.removeEventListener("click", onExit),
+      () => selectAll?.removeEventListener("click", onSelectAll),
+      () => clear?.removeEventListener("click", onClear),
+      () => start?.removeEventListener("click", onStart),
+      () => prev?.removeEventListener("click", onPrev),
+      () => play?.removeEventListener("click", onPlay),
+      () => next?.removeEventListener("click", onNext),
+      () => change?.removeEventListener("click", onChange),
+      () => seek?.removeEventListener("input", onSeek),
+      () => this.video.removeEventListener("timeupdate", onTimeUpdate),
+      () => this.video.removeEventListener("ended", onEnded),
+      () => this.video.removeEventListener("play", syncTransport),
+      () => this.video.removeEventListener("pause", syncTransport),
+    );
+  }
+
+  private openReview(): void {
+    if (
+      this.manager.getState() !== "completed" ||
+      this.isYouTubeEngine() ||
+      this.adapter.id !== "native"
+    ) {
+      this.announce("Review is available after a completed local lecture.");
+      return;
+    }
+
+    this.video.pause();
+    this.reviewMode = true;
+    this.reviewActive = false;
+    this.reviewFinished = false;
+    this.reviewSectionEnding = false;
+    this.reviewItems = [];
+    this.reviewIndex = 0;
+    document.body.classList.add("review-mode");
+
+    for (const node of new Set(Object.values(this.screens))) {
+      node.classList.add("hidden");
+      node.classList.remove("flex");
+    }
+    this.reviewScreen.classList.remove("hidden");
+    this.reviewScreen.classList.add("flex");
+
+    const fileName = this.manager.getSnapshot().metadata?.fileName ?? "";
+    const nameNode = document.getElementById("review-filename");
+    if (nameNode) nameNode.textContent = fileName;
+
+    const annotations = this.annotations.getAll();
+    this.reviewSelected = new Set(annotations.map((annotation) => annotation.id));
+    this.setReviewPanel("setup");
+    this.renderReviewSetup();
+    this.setReviewStatus("");
+
+    const primary = this.reviewSelected.size > 0
+      ? document.getElementById("review-start-btn")
+      : document.getElementById("review-exit-btn");
+    primary?.focus({ preventScroll: true });
+    this.announce(
+      annotations.length === 0
+        ? "Review mode. No bookmarks or notes for this lecture."
+        : `Review mode. ${annotations.length} saved moments available to select.`,
+    );
+  }
+
+  private closeReview(): void {
+    if (!this.reviewMode) return;
+    this.reviewMode = false;
+    this.reviewActive = false;
+    this.reviewFinished = false;
+    this.reviewSectionEnding = false;
+    this.video.pause();
+    document.body.classList.remove("review-mode");
+    this.reviewScreen.classList.add("hidden");
+    this.reviewScreen.classList.remove("flex");
+  }
+
+  private exitReview(): void {
+    const wasOpen = this.reviewMode;
+    this.closeReview();
+    this.render(this.manager.getState());
+    if (wasOpen) this.announce("Review closed. Session summary restored.");
+  }
+
+  private setReviewPanel(panel: "setup" | "player"): void {
+    const setup = document.getElementById("review-setup");
+    const player = document.getElementById("review-player");
+    const showSetup = panel === "setup";
+    setup?.classList.toggle("hidden", !showSetup);
+    if (player) player.classList.toggle("hidden", showSetup);
+  }
+
+  private renderReviewSetup(): void {
+    const list = document.getElementById("review-list");
+    const empty = document.getElementById("review-empty");
+    if (!list) return;
+
+    const annotations = this.annotations.getAll();
+    list.replaceChildren();
+    empty?.classList.toggle("hidden", annotations.length > 0);
+    list.classList.toggle("hidden", annotations.length === 0);
+
+    for (const annotation of annotations) {
+      const li = document.createElement("li");
+      const label = document.createElement("label");
+      label.className = "review-row";
+
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.className = "review-check";
+      checkbox.checked = this.reviewSelected.has(annotation.id);
+      checkbox.setAttribute(
+        "aria-label",
+        `Review ${annotation.kind} at ${formatTime(annotation.time)}`,
+      );
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) this.reviewSelected.add(annotation.id);
+        else this.reviewSelected.delete(annotation.id);
+        this.syncReviewSelection(annotations.length);
+      });
+
+      const stamp = document.createElement("span");
+      stamp.className = "timecode-stamp shrink-0";
+      stamp.textContent = formatTime(annotation.time);
+
+      const content = document.createElement("span");
+      content.className = "min-w-0 flex-1";
+
+      const kind = document.createElement("span");
+      kind.className = "block text-[10px] text-neutral-500";
+      kind.textContent = annotation.kind === "bookmark" ? "Bookmark" : "Note";
+
+      const text = document.createElement("span");
+      text.className = "block text-[13px] text-neutral-200 truncate mt-0.5";
+      text.textContent =
+        annotation.kind === "note" ? annotation.text : "Marked during this lecture";
+
+      content.append(kind, text);
+      label.append(checkbox, stamp, content);
+      li.append(label);
+      list.append(li);
+    }
+
+    this.syncReviewSelection(annotations.length);
+  }
+
+  private syncReviewSelection(total: number): void {
+    const count = this.reviewSelected.size;
+    const countNode = document.getElementById("review-selection-count");
+    if (countNode) countNode.textContent = `${count} of ${total} selected`;
+
+    const start = document.getElementById("review-start-btn") as HTMLButtonElement | null;
+    if (start) start.disabled = count === 0;
+
+    const selectAll = document.getElementById("review-select-all-btn") as HTMLButtonElement | null;
+    if (selectAll) selectAll.disabled = total === 0 || count === total;
+
+    const clear = document.getElementById("review-clear-selection-btn") as HTMLButtonElement | null;
+    if (clear) clear.disabled = count === 0;
+  }
+
+  private selectAllReviewAnnotations(selected: boolean): void {
+    this.reviewSelected = selected
+      ? new Set(this.annotations.getAll().map((annotation) => annotation.id))
+      : new Set();
+    this.renderReviewSetup();
+  }
+
+  private startReview(): void {
+    const duration =
+      this.manager.getProgress().duration ||
+      this.manager.getSnapshot().metadata?.duration ||
+      0;
+    const items = buildReviewQueue(
+      this.annotations.getAll(),
+      duration,
+      this.reviewSelected,
+      REVIEW_WINDOW_SECONDS,
+    );
+
+    if (items.length === 0) {
+      this.setReviewStatus("Select at least one bookmark or note to review.");
+      return;
+    }
+
+    this.reviewItems = items;
+    this.reviewIndex = 0;
+    this.reviewActive = true;
+    this.reviewFinished = false;
+    this.reviewSectionEnding = false;
+    this.setReviewPanel("player");
+
+    const slot = document.getElementById("review-video-slot");
+    if (slot && this.video.parentElement !== slot) slot.appendChild(this.video);
+
+    this.renderReviewPlayer();
+    this.startReviewItem(0);
+    this.announce(`Review started. ${items.length} section${items.length === 1 ? "" : "s"}.`);
+  }
+
+  private startReviewItem(index: number): void {
+    const item = this.reviewItems[index];
+    if (!item) return;
+
+    this.reviewIndex = index;
+    this.reviewSectionEnding = false;
+    this.reviewFinished = false;
+    this.reviewActive = true;
+
+    this.video.pause();
+    this.video.playbackRate = 1;
+    this.video.currentTime = item.start;
+    this.renderReviewPlayer();
+    this.updateReviewProgress();
+    void this.playReviewVideo();
+  }
+
+  private renderReviewPlayer(): void {
+    const item = this.reviewItems[this.reviewIndex];
+    if (!item) return;
+
+    const fileName = this.manager.getSnapshot().metadata?.fileName ?? "";
+    const nameNode = document.getElementById("review-filename");
+    if (nameNode) nameNode.textContent = fileName;
+
+    const kind = document.getElementById("review-item-kind");
+    if (kind) kind.textContent = item.kind === "bookmark" ? "Bookmark" : "Note";
+
+    const range = document.getElementById("review-item-range");
+    if (range) range.textContent = `${formatTime(item.start)} – ${formatTime(item.end)}`;
+
+    const text = document.getElementById("review-item-text");
+    if (text) {
+      text.textContent =
+        item.text || (item.kind === "bookmark" ? "Marked during this lecture" : "Note");
+    }
+
+    const count = document.getElementById("review-queue-count");
+    if (count) count.textContent = `${this.reviewIndex + 1} of ${this.reviewItems.length}`;
+
+    const seek = document.getElementById("review-seek") as HTMLInputElement | null;
+    if (seek) seek.max = String(Math.max(0.1, item.end - item.start));
+
+    const list = document.getElementById("review-queue-list");
+    if (list) {
+      list.replaceChildren();
+      this.reviewItems.forEach((entry, index) => {
+        const li = document.createElement("li");
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "review-slip focus-ring";
+        button.setAttribute("aria-current", index === this.reviewIndex ? "true" : "false");
+        button.title = `${formatTime(entry.start)} — ${entry.text || entry.kind}`;
+
+        const number = document.createElement("span");
+        number.className = "timecode text-[10px] text-neutral-600 w-4 shrink-0";
+        number.textContent = String(index + 1).padStart(2, "0");
+
+        const stamp = document.createElement("span");
+        stamp.className = "timecode text-[10px] shrink-0";
+        stamp.textContent = formatTime(entry.start);
+
+        const label = document.createElement("span");
+        label.className = "min-w-0 flex-1 truncate text-[11px]";
+        label.textContent =
+          entry.text || (entry.kind === "bookmark" ? "Bookmark" : "Note");
+
+        button.append(number, stamp, label);
+        button.addEventListener("click", () => {
+          if (index === this.reviewIndex) this.toggleReviewPlayback();
+          else this.startReviewItem(index);
+        });
+
+        li.append(button);
+        list.append(li);
+      });
+    }
+
+    this.syncReviewButtons();
+  }
+
+  private updateReviewProgress(): void {
+    const item = this.reviewItems[this.reviewIndex];
+    if (!item) return;
+
+    const span = Math.max(0.1, item.end - item.start);
+    const relative = Math.max(0, Math.min(span, this.video.currentTime - item.start));
+
+    const seek = document.getElementById("review-seek") as HTMLInputElement | null;
+    if (seek) {
+      seek.max = String(span);
+      if (document.activeElement !== seek) seek.value = String(relative);
+    }
+
+    const position = document.getElementById("review-position");
+    if (position) {
+      position.textContent = `${formatTime(this.video.currentTime)} / ${formatTime(item.end)}`;
+    }
+  }
+
+  private async playReviewVideo(): Promise<void> {
+    this.reviewFinished = false;
+    try {
+      await this.video.play();
+      this.setReviewStatus("");
+    } catch {
+      this.setReviewStatus("Playback was blocked. Press Play to continue.");
+    }
+    this.syncReviewButtons();
+  }
+
+  private toggleReviewPlayback(): void {
+    const item = this.reviewItems[this.reviewIndex];
+    if (!item) return;
+
+    // At the end of the queue/section, Play means replay this section.
+    if (this.reviewFinished || this.video.currentTime >= item.end - 0.05) {
+      this.startReviewItem(this.reviewIndex);
+      return;
+    }
+
+    if (this.video.paused) void this.playReviewVideo();
+    else this.video.pause();
+  }
+
+  private moveReview(delta: number): void {
+    const target = this.reviewIndex + delta;
+    if (target < 0 || target >= this.reviewItems.length) return;
+    this.startReviewItem(target);
+  }
+
+  private finishReviewItem(): void {
+    if (!this.reviewActive || this.reviewSectionEnding) return;
+    this.reviewSectionEnding = true;
+    this.video.pause();
+
+    if (this.reviewIndex < this.reviewItems.length - 1) {
+      const next = this.reviewIndex + 1;
+      this.setReviewStatus(
+        `Section reviewed. Moving to ${next + 1} of ${this.reviewItems.length}.`,
+      );
+      this.startReviewItem(next);
+      return;
+    }
+
+    this.reviewActive = false;
+    this.reviewFinished = true;
+    const message = `Review complete — ${this.reviewItems.length} section${
+      this.reviewItems.length === 1 ? "" : "s"
+    } revisited.`;
+    this.setReviewStatus(message);
+    this.updateReviewProgress();
+    this.syncReviewButtons();
+    this.announce(message);
+  }
+
+  private changeReviewSelection(): void {
+    this.video.pause();
+    this.reviewActive = false;
+    this.reviewFinished = false;
+    this.reviewSectionEnding = false;
+    this.setReviewPanel("setup");
+    this.renderReviewSetup();
+    const primary = this.reviewSelected.size > 0
+      ? document.getElementById("review-start-btn")
+      : document.getElementById("review-exit-btn");
+    primary?.focus({ preventScroll: true });
+  }
+
+  private syncReviewButtons(): void {
+    const prev = document.getElementById("review-prev-btn") as HTMLButtonElement | null;
+    const play = document.getElementById("review-play-btn") as HTMLButtonElement | null;
+    const next = document.getElementById("review-next-btn") as HTMLButtonElement | null;
+
+    if (prev) prev.disabled = this.reviewIndex <= 0;
+    if (next) next.disabled = this.reviewIndex >= this.reviewItems.length - 1;
+    if (play) {
+      play.textContent = this.reviewFinished
+        ? "Replay"
+        : this.video.paused
+          ? "Play"
+          : "Pause";
+    }
+  }
+
+  private setReviewStatus(message: string): void {
+    const node = document.getElementById("review-status");
+    if (node) node.textContent = message;
+  }
+
+  private handleReviewKey(event: KeyboardEvent): void {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "o") {
+      event.preventDefault();
+      el<HTMLInputElement>("video-input").click();
+      return;
+    }
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      this.exitReview();
+      return;
+    }
+
+    if (!this.reviewActive) return;
+
+    if (event.code === "Space" || event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      this.toggleReviewPlayback();
+      return;
+    }
+
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      event.preventDefault();
+      const item = this.reviewItems[this.reviewIndex];
+      if (!item) return;
+      const delta = (event.shiftKey ? 30 : 5) * (event.key === "ArrowRight" ? 1 : -1);
+      const span = Math.max(0.1, item.end - item.start);
+      const relative = this.video.currentTime - item.start + delta;
+      this.video.currentTime = item.start + Math.max(0, Math.min(span, relative));
+      this.updateReviewProgress();
+    }
   }
 
   /* ---------------------------------------------------------------- */
@@ -1745,8 +2302,9 @@ export class WorkspaceUI {
 
         const remove = document.createElement("button");
         remove.type = "button";
-        remove.className = "text-neutral-500 hover:text-red-400 text-[10px] shrink-0 focus-ring rounded px-0.5";
-        remove.textContent = "✕";
+        remove.className = "text-neutral-500 hover:text-neutral-200 shrink-0 focus-ring rounded p-0.5";
+        remove.innerHTML =
+          `<svg aria-hidden="true" class="w-3 h-3" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5" viewBox="0 0 24 24"><line x1="6" x2="18" y1="6" y2="18"></line><line x1="18" x2="6" y1="6" y2="18"></line></svg>`;
         remove.setAttribute("aria-label", `Remove ${item.file.name} from the queue`);
         remove.addEventListener("click", () => {
           this.playlist.remove(item.id);
@@ -1996,7 +2554,7 @@ export class WorkspaceUI {
         hint: document.pictureInPictureEnabled ? "P" : "n/a",
         run: () => void this.togglePictureInPicture(),
       },
-      { label: "About LiveX", hint: "", run: () => this.openAbout() },
+      { label: "About Livex", hint: "", run: () => this.openAbout() },
     ];
 
     for (const item of items) {

@@ -18,12 +18,27 @@
  */
 
 @layer base {
-  /* Subtle infinite dot grid resembling Excalidraw's canvas */
+  html {
+    background-color: #000000;
+  }
+
+  body {
+    background-color: #000000;
+  }
+
+  /* The control desk reads on a quiet ink field matching the topographic background */
   .dot-grid-canvas {
-    background-color: #170c0d;
-    background-image: radial-gradient(rgba(255, 180, 180, 0.11) 1px, transparent 1px);
-    background-size: 24px 24px;
-    background-position: 0 0;
+    background-color: #000000;
+    background-image: none;
+  }
+
+  ::selection {
+    background-color: rgba(229, 72, 77, 0.35);
+    color: #f4f6f8;
+  }
+
+  input[type="range"] {
+    accent-color: #e5484d;
   }
 
   /* Hide native video controls — LiveX draws its own. */
@@ -41,52 +56,313 @@
 @layer components {
   /* Subtle transitions and tactile button states */
   .tool-btn {
-    transition: all 0.15s ease-in-out;
+    transition-property: background-color, color, border-color, transform;
+    transition-duration: 150ms;
+    transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
   }
   .tool-btn:hover {
-    background-color: #2f171a;
-    color: #ffffff;
+    background-color: #1c222c;
+    color: #f4f6f8;
   }
   .tool-btn:active {
-    transform: scale(0.96);
+    transform: scale(0.97);
   }
 
   /* Corner brackets for the minimalist dropzone */
-  .bracket-tl {
-    position: absolute;
-    top: -12px;
-    left: -12px;
-    width: 14px;
-    height: 14px;
-    border-top: 1.5px solid #4a2a30;
-    border-left: 1.5px solid #4a2a30;
+}
+
+@layer components {
+  /* Buttons. The red is a tally light, not a surface wash: the primary action
+     gets it, secondary work stays on the ink ramp. */
+  .btn-primary,
+  .btn-secondary,
+  .btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border-radius: 8px;
+    min-height: 36px;
+    padding: 0 16px;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1;
+    transition-property: background-color, color, border-color, transform;
+    transition-duration: 150ms;
+    transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
   }
-  .bracket-tr {
-    position: absolute;
-    top: -12px;
-    right: -12px;
-    width: 14px;
-    height: 14px;
-    border-top: 1.5px solid #4a2a30;
-    border-right: 1.5px solid #4a2a30;
+
+  .btn-primary {
+    background-color: #e5484d;
+    color: #140a0b;
   }
-  .bracket-bl {
-    position: absolute;
-    bottom: -12px;
-    left: -12px;
-    width: 14px;
-    height: 14px;
-    border-bottom: 1.5px solid #4a2a30;
-    border-left: 1.5px solid #4a2a30;
+  .btn-primary:hover:not(:disabled) {
+    background-color: #f25b60;
   }
-  .bracket-br {
-    position: absolute;
-    bottom: -12px;
-    right: -12px;
+
+  .btn-secondary {
+    background-color: #141820;
+    border: 1px solid #27303c;
+    color: #d8dde5;
+  }
+  .btn-secondary:hover:not(:disabled) {
+    background-color: #1c222c;
+    border-color: #3a4554;
+    color: #f4f6f8;
+  }
+
+  .btn-ghost {
+    background-color: transparent;
+    color: #9aa3b0;
+  }
+  .btn-ghost:hover:not(:disabled) {
+    background-color: #1c222c;
+    color: #f4f6f8;
+  }
+
+  .btn-primary:active:not(:disabled),
+  .btn-secondary:active:not(:disabled),
+  .btn-ghost:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+
+  .btn-primary:disabled,
+  .btn-secondary:disabled,
+  .btn-ghost:disabled {
+    opacity: 0.38;
+    cursor: not-allowed;
+  }
+
+  /* Mono metadata and the stamped-timecode signature. */
+  .timecode {
+    font-family: "JetBrains Mono", monospace;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0;
+  }
+
+  .timecode-stamp {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 46px;
+    padding: 3px 6px;
+    border: 1px solid #27303c;
+    border-radius: 4px;
+    background-color: #0b0d10;
+    color: #d8dde5;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+
+  .timecode-stamp--active {
+    border-color: rgba(229, 72, 77, 0.55);
+    background-color: rgba(229, 72, 77, 0.12);
+    color: #ffa3a3;
+  }
+
+  .tally {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 8px;
+    border: 1px solid rgba(229, 72, 77, 0.42);
+    border-radius: 4px;
+    background-color: rgba(229, 72, 77, 0.1);
+    color: #ffa3a3;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    font-weight: 500;
+    line-height: 1.2;
+  }
+
+  .tally-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 1px;
+    background-color: #e5484d;
+  }
+
+  .section-label {
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 16px;
+    color: #9aa3b0;
+  }
+
+  .range-control {
+    appearance: none;
+    -webkit-appearance: none;
+    height: 16px;
+    background: transparent;
+    cursor: pointer;
+  }
+  .range-control::-webkit-slider-runnable-track {
+    height: 3px;
+    border-radius: 2px;
+    background-color: #27303c;
+  }
+  .range-control::-moz-range-track {
+    height: 3px;
+    border-radius: 2px;
+    background-color: #27303c;
+  }
+  .range-control::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 10px;
+    height: 14px;
+    margin-top: -5.5px;
+    border: 1px solid #0b0d10;
+    border-radius: 2px;
+    background-color: #e5484d;
+  }
+  .range-control::-moz-range-thumb {
+    width: 10px;
+    height: 14px;
+    border: 1px solid #0b0d10;
+    border-radius: 2px;
+    background-color: #e5484d;
+  }
+
+  /* Review desk: saved moments in a rail, current section on the stage. */
+  .review-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+    width: 100%;
+  }
+  @media (min-width: 960px) {
+    .review-layout {
+      grid-template-columns: 280px minmax(0, 1fr);
+      align-items: start;
+    }
+  }
+
+  .review-rail {
+    border: 1px solid #27303c;
+    border-radius: 12px;
+    background-color: #141820;
+    padding: 16px;
+  }
+
+  #review-queue-list {
+    max-height: 160px;
+    overflow-y: auto;
+    padding-right: 4px;
+  }
+  @media (min-width: 960px) {
+    #review-queue-list {
+      max-height: 240px;
+    }
+  }
+
+  .review-stage {
+    min-width: 0;
+  }
+
+  .review-video {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    border-radius: 12px;
+    background-color: #000;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
+  }
+
+  .review-controls {
+    margin-top: 12px;
+    border: 1px solid #27303c;
+    border-radius: 12px;
+    background-color: #141820;
+    padding: 16px;
+  }
+
+  .review-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #27303c;
+    border-radius: 8px;
+    background-color: #0f1319;
+    cursor: pointer;
+    transition-property: background-color, border-color;
+    transition-duration: 150ms;
+    transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .review-row:hover {
+    background-color: #171d26;
+    border-color: #3a4554;
+  }
+  .review-row:has(input:checked) {
+    border-color: rgba(229, 72, 77, 0.3);
+    background-color: #171d26;
+  }
+
+  .review-check {
+    appearance: none;
+    -webkit-appearance: none;
     width: 14px;
     height: 14px;
-    border-bottom: 1.5px solid #4a2a30;
-    border-right: 1.5px solid #4a2a30;
+    margin-top: 3px;
+    flex-shrink: 0;
+    border: 1px solid #3a4554;
+    border-radius: 3px;
+    background-color: #0b0d10;
+    background-image: none;
+    cursor: pointer;
+  }
+  .review-check:checked,
+  .review-check:checked:hover,
+  .review-check:checked:focus {
+    border-color: #e5484d;
+    background-color: #e5484d;
+    background-image: none;
+  }
+  .review-check:focus-visible {
+    outline: 2px solid #e8edf3;
+    outline-offset: 1px;
+  }
+  .review-check:checked::after {
+    content: "";
+    display: block;
+    width: 7px;
+    height: 4px;
+    margin: 2px 0 0 2px;
+    border-left: 1.5px solid #140a0b;
+    border-bottom: 1.5px solid #140a0b;
+    transform: rotate(-45deg);
+  }
+
+  .review-slip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #27303c;
+    border-radius: 6px;
+    background-color: #0f1319;
+    color: #9aa3b0;
+    text-align: left;
+    transition-property: background-color, border-color, color;
+    transition-duration: 150ms;
+    transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .review-slip:hover {
+    background-color: #171d26;
+    border-color: #3a4554;
+    color: #d8dde5;
+  }
+  .review-slip[aria-current="true"] {
+    border-color: rgba(229, 72, 77, 0.48);
+    background-color: rgba(229, 72, 77, 0.08);
+    color: #ffa3a3;
   }
 }
 
@@ -136,8 +412,8 @@
 
   /* Accessibility: visible focus ring for keyboard users only. */
   .focus-ring:focus-visible {
-    outline: 2px solid #fca5a5;
-    outline-offset: 2px;
+    outline: 2px solid #e8edf3;
+    outline-offset: 1px;
   }
 
   /* Screen-reader only, but still announced. */
@@ -160,6 +436,18 @@
 @layer components {
   .livex-dialog {
     @apply bg-surface text-neutral-200 border border-border rounded-xl shadow-2xl p-5 w-[min(28rem,calc(100vw-2rem))] focus:outline-none;
+  }
+
+  /* The text field sits inside its own framed row; the forms plugin's default
+     white field border would draw a second box around it. */
+  #youtube-input {
+    border: 0;
+    background-color: transparent;
+    box-shadow: none;
+  }
+  #youtube-input:focus {
+    outline: none;
+    box-shadow: none;
   }
   .livex-dialog::backdrop {
     background-color: rgba(0, 0, 0, 0.65);
@@ -206,6 +494,17 @@
   /* A dialog-open dialog should not let the page behind scroll. */
   body:has(dialog[open]) {
     overflow: hidden;
+  }
+}
+
+/* ==================================================================
+ * Lecture review mode — post-session, separate from the live controls.
+ * ================================================================== */
+@layer components {
+  /* Review is its own space; live-session annotation buttons do not belong. */
+  body.review-mode #note-btn,
+  body.review-mode #bookmark-btn {
+    display: none !important;
   }
 }
 

@@ -128,9 +128,9 @@ async function assertPage(page, label, { expectExternal }) {
   const tag = `[${label}]`;
   record(`${tag} no page errors`, errors.length === 0, errors.slice(0, 2).join(" | "));
   record(`${tag} no failed requests`, failed.length === 0, failed.slice(0, 3).join(" | "));
-  record(`${tag} dark theme applied`, style.bodyBg === "rgb(23, 12, 13)", style.bodyBg);
-  record(`${tag} Tailwind applied (toolbar styled)`, style.toolbarBg === "rgb(36, 17, 19)", style.toolbarBg);
-  record(`${tag} typography applied`, style.h1Size === "24px" && style.font.includes("Inter"), `${style.h1Size} / ${style.font}`);
+  record(`${tag} dark theme applied`, style.bodyBg === "rgb(11, 13, 16)", style.bodyBg);
+  record(`${tag} Tailwind applied (toolbar styled)`, style.toolbarBg === "rgb(20, 24, 32)", style.toolbarBg);
+  record(`${tag} typography applied`, style.h1Size === "30px" && style.font.includes("Inter"), `${style.h1Size} / ${style.font}`);
   record(`${tag} CSS rules present`, style.cssRules > 100, String(style.cssRules));
   record(`${tag} fonts loaded`, style.fonts >= 4, String(style.fonts));
   record(`${tag} idle screen visible`, style.idleVisible === true);

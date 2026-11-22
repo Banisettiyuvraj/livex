@@ -16,8 +16,15 @@ import { SessionHistoryService } from "./session/SessionHistoryService";
 import { AnnotationService } from "./session/AnnotationService";
 import { LocalMetadataStore } from "./files/LocalMetadataStore";
 import { WorkspaceUI } from "./ui/WorkspaceUI";
+import { mountTopographicBackground } from "./ui/TopographicBackground";
 
 function boot(): void {
+  const bgSlot = document.getElementById("topographic-background");
+  let cleanupBg: (() => void) | undefined;
+  if (bgSlot) {
+    cleanupBg = mountTopographicBackground(bgSlot);
+  }
+
   const video = document.getElementById("video");
   if (!(video instanceof HTMLVideoElement)) {
     throw new Error("LiveX: the #video element is missing from the page");
@@ -62,7 +69,10 @@ function boot(): void {
     },
   });
 
-  window.addEventListener("beforeunload", () => ui.dispose());
+  window.addEventListener("beforeunload", () => {
+    cleanupBg?.();
+    ui.dispose();
+  });
 
   if (import.meta.env.DEV) {
     // Developer console helper — capability matrix only, never file contents.
