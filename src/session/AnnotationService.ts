@@ -18,6 +18,16 @@ export type AnnotationChangeListener = (annotations: Annotation[]) => void;
 /** Fired when playback crosses a note's timestamp. */
 export type NoteCrossedListener = (annotation: Annotation) => void;
 
+export interface ImportAnnotationsResult {
+  imported: number;
+  /** Rows already present (same id or same media/kind/time/text). */
+  skipped: number;
+  /** Media the accepted rows belong to. */
+  mediaKeys: string[];
+  /** True when the currently open lecture received at least one row. */
+  currentMediaUpdated: boolean;
+}
+
 let idCounter = 0;
 
 export class AnnotationService {
@@ -89,6 +99,51 @@ export class AnnotationService {
     this.annotations = this.annotations.filter((a) => a.id !== id);
     this.emitChange();
     await this.store.deleteAnnotation(id);
+  }
+
+  /**
+   * Restore annotations from a backup.
+   *
+   * Rows keep the media key they were exported with, so a backup can restore
+   * several lectures at once without any of them being open. A row is skipped
+   * when its id already exists or when the same lecture already has an
+   * identical mark at the same timestamp — importing the same file twice is
+   * therefore harmless.
+   */
+  async importAnnotations(candidates: readonly Annotation[]): Promise<ImportAnnotationsResult> {
+    const existing = await this.store.listAllAnnotations();
+    const ids = new Set(existing.map((annotation) => annotation.id));
+    const signatures = new Set(
+      existing.map(
+        (annotation) =>
+          `${annotation.mediaKey}|${annotation.kind}|${annotation.time}|${annotation.text}`,
+      ),
+    );
+
+    const accepted: Annotation[] = [];
+    let skipped = 0;
+
+    for (const annotation of candidates) {
+      const signature = `${annotation.mediaKey}|${annotation.kind}|${annotation.time}|${annotation.text}`;
+      if (ids.has(annotation.id) || signatures.has(signature)) {
+        skipped += 1;
+        continue;
+      }
+      accepted.push(annotation);
+      ids.add(annotation.id);
+      signatures.add(signature);
+    }
+
+    await this.store.putAnnotations(accepted);
+
+    const mediaKeys = [...new Set(accepted.map((annotation) => annotation.mediaKey))];
+    const currentMediaUpdated = this.mediaKey !== "" && mediaKeys.includes(this.mediaKey);
+    if (currentMediaUpdated) {
+      this.annotations = await this.store.listAnnotations(this.mediaKey);
+      this.emitChange();
+    }
+
+    return { imported: accepted.length, skipped, mediaKeys, currentMediaUpdated };
   }
 
   /**

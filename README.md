@@ -93,6 +93,8 @@ DOM. Swapping engines touches `PlaybackAdapter` + one line in `main.ts`.
 - **Anti-skip** forward-seek ceiling with a 1× speed lock.
 - **Bookmarks and timestamped notes** — `B` to bookmark, `N` to write a note;
   notes resurface as you play past them.
+- **Take your notes with you** — export a lecture as Markdown or a JSON backup,
+  copy all notes in one click, and import a backup to restore bookmarks and notes.
 - **Continue where you left off** — recent files with progress, stored locally.
 - **Resume an interrupted session** — an explicit offer, never a silent jump.
 - **Keyboard-first control** — arrows, `J/K/L`, `P` for picture-in-picture.
@@ -165,7 +167,9 @@ saved data**:
    position, per file. Stored in IndexedDB. The About dialog aggregates these
    into local watching statistics.
 2. **Bookmarks and notes** — timestamp plus your note text (capped at 500
-   characters), keyed to the same file fingerprint.
+   characters), keyed to the same file fingerprint. Exports are written only
+   when you ask for them; a JSON backup contains the same annotation records
+   and the file's name/size/duration fingerprint, never media bytes.
 
 Two small `localStorage` keys remember the time-display mode you chose and
 whether you have accepted the YouTube disclosure. Neither contains media.

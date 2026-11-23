@@ -214,6 +214,33 @@ export class LocalMetadataStore {
     await this.withStore(STORE_ANNOTATIONS, "readwrite", (store) => store.put(annotation));
   }
 
+  /** Every stored annotation, across all media. Used to de-duplicate imports. */
+  async listAllAnnotations(): Promise<Annotation[]> {
+    const all = await this.withStore<Annotation[]>(STORE_ANNOTATIONS, "readonly", (store) =>
+      store.getAll() as IDBRequest<Annotation[]>,
+    );
+    return all ?? [];
+  }
+
+  /** Restore a batch in one transaction. */
+  async putAnnotations(annotations: readonly Annotation[]): Promise<void> {
+    if (annotations.length === 0) return;
+    const db = await this.open();
+    if (!db) return;
+
+    await new Promise<void>((resolve) => {
+      try {
+        const tx = db.transaction(STORE_ANNOTATIONS, "readwrite");
+        const store = tx.objectStore(STORE_ANNOTATIONS);
+        for (const annotation of annotations) store.put(annotation);
+        tx.oncomplete = () => resolve();
+        tx.onabort = () => resolve();
+      } catch {
+        resolve();
+      }
+    });
+  }
+
   async deleteAnnotation(id: string): Promise<void> {
     await this.withStore(STORE_ANNOTATIONS, "readwrite", (store) => store.delete(id));
   }

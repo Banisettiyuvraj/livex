@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Added
+- **Notes & bookmarks export** — the new notes button (also in the menu) opens a
+  dialog to copy a lecture's notes, download Markdown with timestamps, download a
+  structured JSON backup, or import a backup to restore annotations.
+- `AnnotationExport` module with unit tests for Markdown formatting, JSON
+  round-trips and backup validation.
+
+---
+
 ## [1.4.0] — 2026-11-20
 
 ### Added

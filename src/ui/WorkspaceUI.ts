@@ -20,6 +20,13 @@ import { PlaylistService } from "../session/PlaylistService";
 import { SubtitleService } from "../session/SubtitleService";
 import { AnalyticsService } from "../session/AnalyticsService";
 import { REVIEW_WINDOW_SECONDS, buildReviewQueue, type ReviewItem } from "../session/ReviewQueue";
+import {
+  annotationsToMarkdown,
+  buildAnnotationBackup,
+  parseAnnotationBackup,
+  serializeAnnotationBackup,
+  type AnnotationBackupMedia,
+} from "../session/AnnotationExport";
 import { readChapters, type Chapter } from "../files/ChapterReader";
 import type { Annotation, HistoryEntry } from "../files/LocalMetadataStore";
 import { PlaybackError } from "../playback/PlaybackErrors";
@@ -31,6 +38,36 @@ function el<T extends HTMLElement>(id: string): T {
   const node = document.getElementById(id);
   if (!node) throw new Error(`LiveX UI: missing required element #${id}`);
   return node as T;
+}
+
+/** A safe download base name: no separators or characters a filesystem rejects. */
+function exportBaseName(fileName: string): string {
+  const base = fileName
+    .replace(/\.[^.]+$/, "")
+    .replace(/[^\w.-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return base || "lecture";
+}
+
+function downloadText(fileName: string, text: string, type: string): void {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.style.display = "none";
+  // Firefox only follows a click on an anchor that is in the document.
+  document.body.append(link);
+  link.click();
+  link.remove();
+  // The download has started; release the blob URL on the next tick.
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function describeAnnotations(count: number, bookmarks: number): string {
+  const notes = count - bookmarks;
+  return `${bookmarks} bookmark${bookmarks === 1 ? "" : "s"} · ${notes} note${
+    notes === 1 ? "" : "s"
+  }`;
 }
 
 export interface WorkspaceUIOptions {
@@ -171,6 +208,7 @@ export class WorkspaceUI {
     this.bindPlaylist();
     this.bindSubtitles();
     this.bindDialogs();
+    this.bindNotesExport();
 
     this.applyPlatformShortcuts();
     this.disableUnimplementedToolbarButtons();
@@ -1342,6 +1380,216 @@ export class WorkspaceUI {
     );
   }
 
+  /* ---------------------------------------------------------------- */
+  /* Export, copy and restore annotations                             */
+  /* ---------------------------------------------------------------- */
+
+  private bindNotesExport(): void {
+    const openBtn = document.getElementById("export-notes-btn");
+    const copyBtn = document.getElementById("copy-notes-btn");
+    const markdownBtn = document.getElementById("export-markdown-btn");
+    const jsonBtn = document.getElementById("export-json-btn");
+    const importBtn = document.getElementById("import-backup-btn");
+    const input = document.getElementById("annotation-import-input") as HTMLInputElement | null;
+
+    const onOpen = (): void => this.openNotesExport();
+    const onCopy = (): void => void this.copyAllNotes();
+    const onMarkdown = (): void => this.exportNotesMarkdown();
+    const onJson = (): void => this.exportNotesJson();
+    const onImportClick = (): void => input?.click();
+    const onImportChange = (): void => {
+      const file = input?.files?.[0];
+      if (input) input.value = "";
+      if (file) void this.importAnnotationBackup(file);
+    };
+
+    openBtn?.addEventListener("click", onOpen);
+    copyBtn?.addEventListener("click", onCopy);
+    markdownBtn?.addEventListener("click", onMarkdown);
+    jsonBtn?.addEventListener("click", onJson);
+    importBtn?.addEventListener("click", onImportClick);
+    input?.addEventListener("change", onImportChange);
+
+    this.cleanups.push(
+      () => openBtn?.removeEventListener("click", onOpen),
+      () => copyBtn?.removeEventListener("click", onCopy),
+      () => markdownBtn?.removeEventListener("click", onMarkdown),
+      () => jsonBtn?.removeEventListener("click", onJson),
+      () => importBtn?.removeEventListener("click", onImportClick),
+      () => input?.removeEventListener("change", onImportChange),
+      // Keep the summary honest while the dialog is open behind a new mark.
+      this.annotations.onAnnotationsChange(() => this.renderNotesExportSummary()),
+    );
+  }
+
+  private openNotesExport(): void {
+    const dialog = document.getElementById("notes-dialog") as HTMLDialogElement | null;
+    if (!dialog) return;
+    this.setNotesExportStatus("");
+    document.getElementById("notes-export-text")?.classList.add("hidden");
+    this.renderNotesExportSummary();
+    if (!dialog.open) dialog.showModal();
+  }
+
+  private renderNotesExportSummary(): void {
+    const summary = document.getElementById("notes-export-summary");
+    const annotations = this.annotations.getAll();
+    const bookmarks = annotations.filter((annotation) => annotation.kind === "bookmark").length;
+    const fileName = this.manager.getSnapshot().metadata?.fileName ?? "";
+    const hasMedia = this.annotations.hasMedia();
+
+    if (summary) {
+      if (!hasMedia) {
+        summary.textContent =
+          "Open a lecture to export its notes. You can still import a backup at any time.";
+      } else if (annotations.length === 0) {
+        summary.textContent = `${fileName || "This lecture"} has no bookmarks or notes yet.`;
+      } else {
+        summary.textContent = `${fileName || "This lecture"} · ${describeAnnotations(
+          annotations.length,
+          bookmarks,
+        )}.`;
+      }
+    }
+
+    const canExport = hasMedia && annotations.length > 0;
+    for (const id of ["copy-notes-btn", "export-markdown-btn", "export-json-btn"]) {
+      const button = document.getElementById(id) as HTMLButtonElement | null;
+      if (button) button.disabled = !canExport;
+    }
+  }
+
+  private setNotesExportStatus(message: string): void {
+    const status = document.getElementById("notes-export-status");
+    if (status) status.textContent = message;
+  }
+
+  private currentBackupMedia(): AnnotationBackupMedia | null {
+    const metadata = this.manager.getSnapshot().metadata;
+    if (!metadata) return null;
+    return {
+      fileName: metadata.fileName,
+      fileSize: metadata.fileSize,
+      duration: Number.isFinite(metadata.duration) ? metadata.duration : 0,
+    };
+  }
+
+  private exportNotesMarkdown(): void {
+    const annotations = this.annotations.getAll();
+    if (!this.annotations.hasMedia() || annotations.length === 0) {
+      this.setNotesExportStatus("There are no notes to export yet.");
+      return;
+    }
+
+    const fileName = this.manager.getSnapshot().metadata?.fileName ?? "";
+    downloadText(
+      `${exportBaseName(fileName)}-notes.md`,
+      annotationsToMarkdown(fileName, annotations),
+      "text/markdown;charset=utf-8",
+    );
+    this.setNotesExportStatus("Markdown exported.");
+    this.announce("Notes exported as Markdown.");
+  }
+
+  private exportNotesJson(): void {
+    const annotations = this.annotations.getAll();
+    if (!this.annotations.hasMedia() || annotations.length === 0) {
+      this.setNotesExportStatus("There are no notes to back up yet.");
+      return;
+    }
+
+    const media = this.currentBackupMedia();
+    const fileName = media?.fileName ?? "";
+    downloadText(
+      `${exportBaseName(fileName)}-notes.json`,
+      serializeAnnotationBackup(buildAnnotationBackup(media, annotations)),
+      "application/json;charset=utf-8",
+    );
+    this.setNotesExportStatus("JSON backup exported.");
+    this.announce("Notes backed up as JSON.");
+  }
+
+  private async copyAllNotes(): Promise<void> {
+    const annotations = this.annotations.getAll();
+    if (!this.annotations.hasMedia() || annotations.length === 0) {
+      this.setNotesExportStatus("There are no notes to copy yet.");
+      return;
+    }
+
+    const fileName = this.manager.getSnapshot().metadata?.fileName ?? "";
+    const text = annotationsToMarkdown(fileName, annotations);
+    const box = document.getElementById("notes-export-text") as HTMLTextAreaElement | null;
+    if (box) box.value = text;
+
+    let copied = false;
+    try {
+      await navigator.clipboard.writeText(text);
+      copied = true;
+    } catch {
+      // `file://` and older browsers may not expose the async Clipboard API;
+      // fall back to a visible, selectable textarea.
+      if (box) {
+        box.classList.remove("hidden");
+        box.focus();
+        box.select();
+        try {
+          copied = document.execCommand("copy");
+        } catch {
+          copied = false;
+        }
+      }
+    }
+
+    if (copied) {
+      box?.classList.add("hidden");
+      this.setNotesExportStatus("All notes copied.");
+      this.announce("All notes copied to the clipboard.");
+    } else {
+      this.setNotesExportStatus("Copy blocked — select the text above and copy it manually.");
+      this.announce("Copy blocked. The notes are shown for manual copy.");
+    }
+  }
+
+  private async importAnnotationBackup(file: File): Promise<void> {
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      this.setNotesExportStatus("That file could not be read.");
+      return;
+    }
+
+    const parsed = parseAnnotationBackup(text);
+    if (!parsed.ok) {
+      this.setNotesExportStatus(parsed.error);
+      this.announce(parsed.error);
+      return;
+    }
+
+    const result = await this.annotations.importAnnotations(parsed.annotations);
+    const noun = result.imported === 1 ? "item" : "items";
+
+    if (result.imported === 0) {
+      this.setNotesExportStatus(
+        result.skipped > 0
+          ? `Nothing new — ${result.skipped} already saved.`
+          : "Nothing to import from that file.",
+      );
+      return;
+    }
+
+    let message = result.currentMediaUpdated
+      ? `Restored ${result.imported} ${noun} to this lecture.`
+      : `Restored ${result.imported} ${noun}${
+          parsed.media?.fileName ? ` for ${parsed.media.fileName}` : ""
+        }. Open that lecture to see them.`;
+    if (result.skipped > 0) message += ` ${result.skipped} already saved.`;
+
+    this.setNotesExportStatus(message);
+    this.renderNotesExportSummary();
+    this.announce(message);
+  }
+
   /** Chips under the progress bar plus ticks on the rail. */
   private renderAnnotations(annotations: Annotation[]): void {
     const bar = document.getElementById("annotation-bar");
@@ -2357,8 +2605,9 @@ export class WorkspaceUI {
   private bindDialogs(): void {
     const shortcuts = document.getElementById("shortcuts-dialog") as HTMLDialogElement | null;
     const about = document.getElementById("about-dialog") as HTMLDialogElement | null;
+    const notes = document.getElementById("notes-dialog") as HTMLDialogElement | null;
 
-    for (const dialog of [shortcuts, about]) {
+    for (const dialog of [shortcuts, about, notes]) {
       if (!dialog) continue;
       for (const closeBtn of dialog.querySelectorAll(".dialog-close")) {
         closeBtn.addEventListener("click", () => dialog.close());
@@ -2554,6 +2803,7 @@ export class WorkspaceUI {
         hint: document.pictureInPictureEnabled ? "P" : "n/a",
         run: () => void this.togglePictureInPicture(),
       },
+      { label: "Notes & export", hint: "", run: () => this.openNotesExport() },
       { label: "About Livex", hint: "", run: () => this.openAbout() },
     ];
 
