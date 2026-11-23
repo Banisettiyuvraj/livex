@@ -20,8 +20,9 @@ test.describe("Lecture review mode", () => {
 
   test("builds a review queue and leaves the completed session intact", async ({ page }) => {
     await page.setInputFiles("#video-input", fixture("h264-long-40s.mp4"));
-    await page.waitForTimeout(900);
-    expect(await state(page)).toBe("ready");
+    // Probing a 40-second file can take longer than a second on a loaded CI
+    // machine; wait for the state instead of guessing at a sleep.
+    await expect.poll(() => state(page), { timeout: 15_000 }).toBe("ready");
 
     // Seed two saved moments, then finish quickly from near the end. Review
     // mode only cares that the live session genuinely completed.

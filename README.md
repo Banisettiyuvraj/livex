@@ -95,6 +95,9 @@ DOM. Swapping engines touches `PlaybackAdapter` + one line in `main.ts`.
   notes resurface as you play past them.
 - **Take your notes with you** — export a lecture as Markdown or a JSON backup,
   copy all notes in one click, and import a backup to restore bookmarks and notes.
+- **Review saved moments** — after a lecture finishes, pick the bookmarks and
+  notes to revisit. Each becomes a 30-second section in a separate review queue,
+  with free seeking and playback that never touches the live session's rules.
 - **Continue where you left off** — recent files with progress, stored locally.
 - **Resume an interrupted session** — an explicit offer, never a silent jump.
 - **Keyboard-first control** — arrows, `J/K/L`, `P` for picture-in-picture.

@@ -9,11 +9,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Lecture review mode** — after a session completes, select any of its
+  bookmarks and notes and revisit each as a 30-second section in a dedicated
+  queue. Review seeks and plays independently of the live-session state machine,
+  so the 1× lock and anti-skip ceiling are untouched.
 - **Notes & bookmarks export** — the new notes button (also in the menu) opens a
   dialog to copy a lecture's notes, download Markdown with timestamps, download a
   structured JSON backup, or import a backup to restore annotations.
-- `AnnotationExport` module with unit tests for Markdown formatting, JSON
-  round-trips and backup validation.
+- `AnnotationExport` and `ReviewQueue` modules with unit tests.
 
 ---
 
